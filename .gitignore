@@ -1,0 +1,8 @@
+node_modules/
+client/node_modules/
+client/dist/
+.env
+.vercel/
+*.db-shm
+*.db-wal
+~$*.xlsx

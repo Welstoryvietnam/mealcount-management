@@ -1,0 +1,17 @@
+services:
+  meal-alert-app:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-prod}
+      - DB_PATH=/app/data/meal_alerts.db
+      - ALERT_THRESHOLD_PCT=-3
+    volumes:
+      - meal_alert_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  meal_alert_data:
