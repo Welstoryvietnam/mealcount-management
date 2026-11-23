@@ -569,34 +569,47 @@ router.get('/alert-overview', (req, res) => {
   const curAgg = sumRangeForLocs(scopedOpen, curRange);
   const prevAgg = sumRangeForLocs(scopedOpen, prevRange);
 
-  // Per-location alert evaluation
+  // Per-location dropping / alert evaluation across ALL openAll (for instant drill-down)
+  const scopedCodeSet = new Set(scopedOpen.map((l) => l.code_number));
+  const allDroppingLocations = [];
   const mealAlerts = [];
   let revAlertCount = 0;
-  for (const loc of scopedOpen) {
+
+  for (const loc of openAll) {
     const c = sumRangeForLocs([loc], curRange);
     const pr = sumRangeForLocs([loc], prevRange);
-    // Skip kitchens with no actual data reported in current or previous period
+    const inCurScope = scopedCodeSet.has(loc.code_number);
+
     if (c.a > 0 && pr.a > 0) {
       const deltaPct = ((c.a / pr.a) - 1) * 100;
-      if (deltaPct <= -thr) {
+      if (deltaPct < 0) {
         const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
-        mealAlerts.push({
+        const item = {
           code_number: loc.code_number,
           location_name: loc.location_name,
           operating_block: loc.operating_block,
           group_ab: loc.group_ab || '',
+          industry: (loc.industry || '').trim() || 'Khác',
+          am_name: loc.am_name || '',
           curActual: Math.round(c.a),
           prevActual: Math.round(pr.a),
+          diffMeals: Math.round(c.a - pr.a),
           deltaPct: Number(deltaPct.toFixed(1)),
           attPct: Number(attPct.toFixed(1)),
-        });
+          isAlert: deltaPct <= -thr,
+        };
+        allDroppingLocations.push(item);
+        if (inCurScope && item.isAlert) {
+          mealAlerts.push(item);
+        }
       }
     }
-    if (c.ra > 0 && pr.ra > 0) {
+    if (inCurScope && c.ra > 0 && pr.ra > 0) {
       const rDeltaPct = ((c.ra / pr.ra) - 1) * 100;
       if (rDeltaPct <= -thr) revAlertCount++;
     }
   }
+  allDroppingLocations.sort((a, b) => a.deltaPct - b.deltaPct);
   mealAlerts.sort((a, b) => a.deltaPct - b.deltaPct);
 
   // Main trend chart (Actual vs Plan)
@@ -623,12 +636,14 @@ router.get('/alert-overview', (req, res) => {
       const series = buckets.map((b) => Math.round(sumRangeForLocs(locs, [b.start, b.end]).a));
       const deltaPct = pr.a > 0 ? ((c.a / pr.a) - 1) * 100 : 0;
       const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
+      const alertCount = mealAlerts.filter((m) => m.industry === ind).length;
       return {
         industry: ind,
         actual: Math.round(c.a),
         plan: Math.round(c.p),
         attPct: Number(attPct.toFixed(1)),
         deltaPct: Number(deltaPct.toFixed(1)),
+        alertCount,
         series,
       };
     })
@@ -648,6 +663,7 @@ router.get('/alert-overview', (req, res) => {
     const deltaPct = pr.a > 0 ? ((c.a / pr.a) - 1) * 100 : 0;
     const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
     const yoyPct = c.y > 0 ? ((c.a / c.y) - 1) * 100 : null;
+    const alertCount = allDroppingLocations.filter((m) => m.isAlert && matchScope(m, sd.key)).length;
     return {
       key: sd.key,
       label: sd.label,
@@ -656,6 +672,7 @@ router.get('/alert-overview', (req, res) => {
       attPct: Number(attPct.toFixed(1)),
       deltaPct: Number(deltaPct.toFixed(1)),
       yoyPct: yoyPct !== null ? Number(yoyPct.toFixed(1)) : null,
+      alertCount,
       series,
     };
   });
@@ -707,6 +724,7 @@ router.get('/alert-overview', (req, res) => {
     industryRows,
     segmentRows,
     alertRows: mealAlerts,
+    allDroppingLocations,
   });
 });
 
@@ -725,20 +743,34 @@ router.get('/exec-status', (req, res) => {
   const mtdData = computePeriod(locations, firstOfMonth, date);
   const mtdMap = new Map(mtdData.items.map((i) => [i.code_number, i]));
 
+  // Same weekday in the same week of last year (-52 weeks = -364 days; if same year, -371 days)
+  let sameDowLyDate = shiftDateISO(date, -364);
+  if (sameDowLyDate.slice(0, 4) === date.slice(0, 4)) {
+    sameDowLyDate = shiftDateISO(date, -371);
+  }
+  const sameDowMmdd = sameDowLyDate.slice(4) === '-02-29' ? '-02-28' : sameDowLyDate.slice(4);
+  const sameDowLookupDate = `${date.slice(0, 4)}${sameDowMmdd}`;
+  const sameDowRows = db
+    .prepare('SELECT code_number, ly_meals, ly_revenue FROM daily_plans WHERE date = ?')
+    .all(sameDowLookupDate);
+  const sameDowMap = new Map(sameDowRows.map((r) => [r.code_number, r]));
+
   const emptyMetric = (label) => ({
     label,
     dayActual: 0,
     dayPlan: 0,
     dayLy: 0,
+    dayLySameDow: 0,
     mtdActual: 0,
     mtdPlan: 0,
     mtdLy: 0,
   });
 
-  const addVals = (target, da, dp, dl, ma, mp, ml) => {
+  const addVals = (target, da, dp, dl, dls, ma, mp, ml) => {
     target.dayActual += da;
     target.dayPlan += dp;
     target.dayLy += dl;
+    target.dayLySameDow += dls;
     target.mtdActual += ma;
     target.mtdPlan += mp;
     target.mtdLy += ml;
@@ -748,6 +780,7 @@ router.get('/exec-status', (req, res) => {
     ...r,
     dayDiffPlan: r.dayActual - r.dayPlan,
     dayDiffLy: r.dayActual - r.dayLy,
+    dayDiffLySameDow: r.dayActual - r.dayLySameDow,
     mtdDiffPlan: r.mtdActual - r.mtdPlan,
     mtdDiffLy: r.mtdActual - r.mtdLy,
   });
@@ -777,39 +810,41 @@ router.get('/exec-status', (req, res) => {
 
     for (const dItem of dayData.items) {
       const mItem = mtdMap.get(dItem.code_number) || {};
+      const sDow = sameDowMap.get(dItem.code_number) || {};
       const da = isRevenue ? dItem.actualRevenue || 0 : dItem.actualMeals || 0;
       const dp = isRevenue ? dItem.planRevenueFull || 0 : dItem.planMealsFull || 0;
       const dl = isRevenue ? dItem.lyRevenueFull || 0 : dItem.lyMealsFull || 0;
+      const dls = isRevenue ? (sDow.ly_revenue != null ? sDow.ly_revenue : 0) : (sDow.ly_meals != null ? sDow.ly_meals : 0);
 
       const ma = isRevenue ? mItem.actualRevenue || 0 : mItem.actualMeals || 0;
       const mp = isRevenue ? mItem.planRevenueFull || 0 : mItem.planMealsFull || 0;
       const ml = isRevenue ? mItem.lyRevenueFull || 0 : mItem.lyMealsFull || 0;
 
-      addVals(totalAll, da, dp, dl, ma, mp, ml);
+      addVals(totalAll, da, dp, dl, dls, ma, mp, ml);
 
       // Group A/B
       const gKey = (dItem.group_ab || '').toUpperCase();
       if (gKey === 'A' || gKey === 'B') {
-        addVals(groupMap.get(gKey), da, dp, dl, ma, mp, ml);
-      } else if (da || dp || dl || ma || mp || ml) {
+        addVals(groupMap.get(gKey), da, dp, dl, dls, ma, mp, ml);
+      } else if (da || dp || dl || dls || ma || mp || ml) {
         if (!groupMap.has('Khác')) groupMap.set('Khác', emptyMetric('Khác'));
-        addVals(groupMap.get('Khác'), da, dp, dl, ma, mp, ml);
+        addVals(groupMap.get('Khác'), da, dp, dl, dls, ma, mp, ml);
       }
 
       // Operating Block
       if (blockMap.has(dItem.operating_block)) {
-        addVals(blockMap.get(dItem.operating_block), da, dp, dl, ma, mp, ml);
-      } else if (da || dp || dl || ma || mp || ml) {
+        addVals(blockMap.get(dItem.operating_block), da, dp, dl, dls, ma, mp, ml);
+      } else if (da || dp || dl || dls || ma || mp || ml) {
         if (!blockMap.has(dItem.operating_block)) {
           blockMap.set(dItem.operating_block, emptyMetric(dItem.operating_block));
         }
-        addVals(blockMap.get(dItem.operating_block), da, dp, dl, ma, mp, ml);
+        addVals(blockMap.get(dItem.operating_block), da, dp, dl, dls, ma, mp, ml);
       }
 
       // Industry
       const indKey = (dItem.industry || '').trim() || 'Khác';
       if (!indMap.has(indKey)) indMap.set(indKey, emptyMetric(indKey));
-      addVals(indMap.get(indKey), da, dp, dl, ma, mp, ml);
+      addVals(indMap.get(indKey), da, dp, dl, dls, ma, mp, ml);
     }
 
     const totalRow = finalizeRow(totalAll);
@@ -843,6 +878,7 @@ router.get('/exec-status', (req, res) => {
   res.json({
     date,
     month,
+    sameDowLyDate,
     meals: buildPanel(false),
     revenue: buildPanel(true),
   });

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { RefreshCw, X, AlertTriangle, ChevronRight, Filter } from 'lucide-react';
 import { apiFetch } from '../api';
 
 const MODES = [
@@ -22,24 +22,45 @@ function fmtDateVN(iso) {
   return `${Number(d)}/${Number(m)}/${y}`;
 }
 
-function StatusBadge({ v, thr }) {
-  if (v <= -10) {
+function matchScopeClient(loc, scopeKey) {
+  if (!scopeKey || scopeKey === 'all') return true;
+  if (scopeKey === 'A' || scopeKey === 'B') return (loc.group_ab || '').toUpperCase() === scopeKey;
+  return loc.operating_block === scopeKey;
+}
+
+function StatusBadge({ v, thr, count, onClick }) {
+  const isSevere = v <= -10;
+  const isWarn = !isSevere && v <= -thr;
+  const label = isSevere ? 'Nghiêm trọng' : isWarn ? 'Cảnh báo' : 'Ổn định';
+  const colorClass = isSevere
+    ? 'bg-red-100 text-red-700 border-red-200'
+    : isWarn
+    ? 'bg-amber-100 text-amber-800 border-amber-200'
+    : 'bg-green-100 text-green-700 border-green-200';
+
+  if (onClick && (isSevere || isWarn || count > 0)) {
     return (
-      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-600">
-        Nghiêm trọng
-      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        title="Bấm để xem danh sách bếp trực thuộc đang giảm suất"
+        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border cursor-pointer transition hover:brightness-95 hover:shadow-xs ${colorClass}`}
+      >
+        <span>{label}</span>
+        {typeof count === 'number' && count > 0 && (
+          <span className="opacity-80 font-bold">· {count} bếp</span>
+        )}
+        <ChevronRight className="w-3 h-3 opacity-75" />
+      </button>
     );
   }
-  if (v <= -thr) {
-    return (
-      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-        Cảnh báo
-      </span>
-    );
-  }
+
   return (
-    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-      Ổn định
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
+      {label}
     </span>
   );
 }
@@ -197,6 +218,36 @@ export default function Dashboard1Page() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [drilldown, setDrilldown] = useState(null); // { type: 'industry'|'segment', key, label, deltaPct }
+  const [drillOnlyThr, setDrillOnlyThr] = useState(true);
+
+  useEffect(() => {
+    if (!drilldown) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setDrilldown(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drilldown]);
+
+  const openDrilldown = (info) => {
+    setDrillOnlyThr(true);
+    setDrilldown(info);
+  };
+
+  const drilldownItems = useMemo(() => {
+    if (!drilldown || !data?.allDroppingLocations) return [];
+    const base = data.allDroppingLocations.filter((loc) => {
+      if (drilldown.type === 'industry') {
+        return loc.industry === drilldown.key && matchScopeClient(loc, scope);
+      }
+      return matchScopeClient(loc, drilldown.key);
+    });
+    return {
+      all: base,
+      alerts: base.filter((loc) => loc.isAlert),
+    };
+  }, [drilldown, data, scope]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -481,27 +532,48 @@ export default function Dashboard1Page() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.industryRows || []).map((r) => (
-                    <tr key={r.industry} className="border-b border-[#e3e8ee] hover:bg-slate-50/70">
-                      <td className="py-2 px-2 text-left font-medium">{r.industry}</td>
-                      <td className="py-2 px-2 text-right">
-                        <Sparkline series={r.series} />
-                      </td>
-                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
-                      <td
-                        className={`py-2 px-2 text-right tabular-nums font-medium ${
-                          r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                  {(data.industryRows || []).map((r) => {
+                    const hasWarn = r.deltaPct <= -thr || r.alertCount > 0;
+                    const triggerIndustry = () =>
+                      openDrilldown({
+                        type: 'industry',
+                        key: r.industry,
+                        label: `Ngành ${r.industry}`,
+                        deltaPct: r.deltaPct,
+                      });
+                    return (
+                      <tr
+                        key={r.industry}
+                        onClick={triggerIndustry}
+                        title="Bấm để xem danh sách bếp giảm suất thuộc ngành này"
+                        className={`border-b border-[#e3e8ee] cursor-pointer transition ${
+                          r.deltaPct <= -10
+                            ? 'bg-red-50/40 hover:bg-red-50/80'
+                            : hasWarn
+                            ? 'hover:bg-amber-50/60'
+                            : 'hover:bg-slate-50/70'
                         }`}
                       >
-                        {pc(r.deltaPct)}
-                      </td>
-                      <td className="py-2 px-2 text-right">
-                        <StatusBadge v={r.deltaPct} thr={thr} />
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-2 px-2 text-left font-medium">{r.industry}</td>
+                        <td className="py-2 px-2 text-right">
+                          <Sparkline series={r.series} />
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
+                        <td
+                          className={`py-2 px-2 text-right tabular-nums font-medium ${
+                            r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                          }`}
+                        >
+                          {pc(r.deltaPct)}
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <StatusBadge v={r.deltaPct} thr={thr} count={r.alertCount} onClick={triggerIndustry} />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -525,44 +597,63 @@ export default function Dashboard1Page() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.segmentRows || []).map((r) => (
-                    <tr
-                      key={r.key}
-                      onClick={() => setScope(r.key)}
-                      className={`border-b border-[#e3e8ee] cursor-pointer transition ${
-                        scope === r.key ? 'bg-blue-50/70' : 'hover:bg-slate-50/70'
-                      }`}
-                    >
-                      <td className="py-2 px-2 text-left font-medium">{r.label}</td>
-                      <td className="py-2 px-2 text-right">
-                        <Sparkline series={r.series} />
-                      </td>
-                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
-                      <td
-                        className={`py-2 px-2 text-right tabular-nums font-medium ${
-                          r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                  {(data.segmentRows || []).map((r) => {
+                    const isWarnOrSevere = r.deltaPct <= -thr;
+                    const triggerSegment = () =>
+                      openDrilldown({
+                        type: 'segment',
+                        key: r.key,
+                        label: r.label,
+                        deltaPct: r.deltaPct,
+                      });
+                    return (
+                      <tr
+                        key={r.key}
+                        onClick={() => (isWarnOrSevere ? triggerSegment() : setScope(r.key))}
+                        title={
+                          isWarnOrSevere
+                            ? 'Bấm để xem ngay danh sách bếp đang giảm suất'
+                            : 'Bấm để lọc Dashboard theo nhóm/điều hành này'
+                        }
+                        className={`border-b border-[#e3e8ee] cursor-pointer transition ${
+                          scope === r.key
+                            ? 'bg-blue-50/70'
+                            : r.deltaPct <= -10
+                            ? 'bg-red-50/40 hover:bg-red-50/80'
+                            : 'hover:bg-slate-50/70'
                         }`}
                       >
-                        {pc(r.deltaPct)}
-                      </td>
-                      <td className="py-2 px-2 text-right">
-                        <StatusBadge v={r.deltaPct} thr={thr} />
-                      </td>
-                      <td
-                        className={`py-2 px-2 text-right tabular-nums font-medium ${
-                          r.yoyPct === null
-                            ? 'text-slate-400'
-                            : r.yoyPct >= 0
-                            ? 'text-[#16a34a]'
-                            : 'text-[#dc2626]'
-                        }`}
-                      >
-                        {pc(r.yoyPct)}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-2 px-2 text-left font-medium">{r.label}</td>
+                        <td className="py-2 px-2 text-right">
+                          <Sparkline series={r.series} />
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
+                        <td
+                          className={`py-2 px-2 text-right tabular-nums font-medium ${
+                            r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                          }`}
+                        >
+                          {pc(r.deltaPct)}
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <StatusBadge v={r.deltaPct} thr={thr} count={r.alertCount} onClick={triggerSegment} />
+                        </td>
+                        <td
+                          className={`py-2 px-2 text-right tabular-nums font-medium ${
+                            r.yoyPct === null
+                              ? 'text-slate-400'
+                              : r.yoyPct >= 0
+                              ? 'text-[#16a34a]'
+                              : 'text-[#dc2626]'
+                          }`}
+                        >
+                          {pc(r.yoyPct)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -631,6 +722,169 @@ export default function Dashboard1Page() {
           </div>
         </>
       )}
+
+      {/* Drill-down Modal: Danh sách bếp trực thuộc đang giảm suất */}
+      {drilldown && (() => {
+        const list = drillOnlyThr ? drilldownItems.alerts || [] : drilldownItems.all || [];
+        const totalDropMeals = list.reduce((s, item) => s + (item.diffMeals || 0), 0);
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[1px] flex items-center justify-center p-4"
+            onClick={() => setDrilldown(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`p-2 rounded-xl mt-0.5 ${
+                      drilldown.deltaPct <= -10
+                        ? 'bg-red-100 text-red-600'
+                        : drilldown.deltaPct <= -thr
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-blue-100 text-blue-600'
+                    }`}
+                  >
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900">
+                        Bếp giảm suất — {drilldown.label}
+                      </h3>
+                      <StatusBadge v={drilldown.deltaPct} thr={thr} />
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Kỳ đang xem: <strong>{currentPeriodLabel}</strong> · So với {pv} · Tổng giảm trong danh sách:{' '}
+                      <strong className="text-red-600">{nf(totalDropMeals)} suất</strong> ({list.length} bếp)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDrilldown(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 cursor-pointer"
+                  aria-label="Đóng"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Filter Bar */}
+              <div className="px-5 py-2.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDrillOnlyThr(true)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition ${
+                      drillOnlyThr
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Cảnh báo giảm ≥ {thr}% ({(drilldownItems.alerts || []).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDrillOnlyThr(false)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition ${
+                      !drillOnlyThr
+                        ? 'bg-slate-800 text-white border-slate-800'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Tất cả bếp giảm &lt; 0% ({(drilldownItems.all || []).length})
+                  </button>
+                </div>
+
+                {drilldown.type === 'segment' && drilldown.key !== scope && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScope(drilldown.key);
+                      setDrilldown(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold cursor-pointer"
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    Lọc toàn bộ Dashboard theo {drilldown.label}
+                  </button>
+                )}
+              </div>
+
+              {/* Table Body */}
+              <div className="overflow-auto flex-1 px-5 py-3">
+                {list.length > 0 ? (
+                  <table className="w-full min-w-[760px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs text-slate-500">
+                        <th className="py-2 px-2 text-left font-semibold">Địa điểm (Mã bếp)</th>
+                        <th className="py-2 px-2 text-left font-semibold">Nhóm / ĐH</th>
+                        <th className="py-2 px-2 text-left font-semibold">Ngành nghề</th>
+                        <th className="py-2 px-2 text-left font-semibold">AM phụ trách</th>
+                        <th className="py-2 px-2 text-right font-semibold">Kỳ này</th>
+                        <th className="py-2 px-2 text-right font-semibold">Kỳ trước</th>
+                        <th className="py-2 px-2 text-right font-semibold">Chênh lệch</th>
+                        <th className="py-2 px-2 text-right font-semibold">Δ%</th>
+                        <th className="py-2 px-2 text-right font-semibold">% đạt KH</th>
+                        <th className="py-2 px-2 text-right font-semibold">Mức độ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((x) => (
+                        <tr key={x.code_number} className="border-b border-slate-100 hover:bg-red-50/40">
+                          <td className="py-2 px-2 text-left font-medium text-slate-900">
+                            <div>{x.location_name}</div>
+                            <div className="text-[11px] font-mono text-slate-400">{x.code_number}</div>
+                          </td>
+                          <td className="py-2 px-2 text-left text-xs text-slate-600 whitespace-nowrap">
+                            {x.group_ab ? `${x.group_ab} · ` : ''}
+                            {formatBlockShort(x.operating_block)}
+                          </td>
+                          <td className="py-2 px-2 text-left text-xs text-slate-600">{x.industry}</td>
+                          <td className="py-2 px-2 text-left text-xs font-medium text-teal-800">
+                            {x.am_name || <span className="text-slate-300">-</span>}
+                          </td>
+                          <td className="py-2 px-2 text-right tabular-nums">{nf(x.curActual)}</td>
+                          <td className="py-2 px-2 text-right tabular-nums text-slate-500">{nf(x.prevActual)}</td>
+                          <td className="py-2 px-2 text-right tabular-nums font-semibold text-red-600">
+                            {nf(x.diffMeals)}
+                          </td>
+                          <td className="py-2 px-2 text-right tabular-nums font-bold text-red-600">
+                            {pc(x.deltaPct)}
+                          </td>
+                          <td className="py-2 px-2 text-right tabular-nums">{fmtPct(x.attPct)}</td>
+                          <td className="py-2 px-2 text-right">
+                            <StatusBadge v={x.deltaPct} thr={thr} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="py-10 text-center text-sm text-slate-500">
+                    Không có bếp nào giảm suất theo bộ lọc hiện tại.
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDrilldown(null)}
+                  className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

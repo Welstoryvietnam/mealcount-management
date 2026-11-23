@@ -20,7 +20,7 @@ function fmtHeroNumber(raw, divisor) {
   return val.toLocaleString('en-US');
 }
 
-function DiffCell({ raw, divisor, decimals, bold = false }) {
+function DiffCell({ raw, divisor, decimals, bold = false, extraClass = '' }) {
   const val = (Number(raw) || 0) / divisor;
   const negThreshold = decimals > 0 ? -0.05 : -0.5;
   const isNeg = val < negThreshold;
@@ -34,7 +34,7 @@ function DiffCell({ raw, divisor, decimals, bold = false }) {
       <td
         className={`px-1 py-1 text-right tabular-nums text-[#dc2626] whitespace-nowrap ${
           bold ? 'font-bold' : 'font-semibold'
-        }`}
+        } ${extraClass}`}
       >
         ▲{absStr}
       </td>
@@ -46,7 +46,7 @@ function DiffCell({ raw, divisor, decimals, bold = false }) {
     <td
       className={`px-1 py-1 text-right tabular-nums text-slate-800 whitespace-nowrap ${
         bold ? 'font-bold' : ''
-      }`}
+      } ${extraClass}`}
     >
       {display}
     </td>
@@ -62,7 +62,7 @@ function SectionTable({
   decimals,
   alignLeftRows = false,
 }) {
-  const { dNum, mNum, dowLabel } = dateInfo;
+  const { dNum, mNum, dowLabel, sameDowShortDate } = dateInfo;
   const shortDate = `${dNum}/${mNum}`;
 
   const renderRow = (r, isTotal = false) => (
@@ -97,6 +97,17 @@ function SectionTable({
         {fmtNumber(r.dayLy, divisor, decimals)}
       </td>
       <DiffCell raw={r.dayDiffLy} divisor={divisor} decimals={decimals} bold={isTotal} />
+      {/* Cùng thứ năm trước */}
+      <td className="px-1 py-1 text-right tabular-nums text-slate-800 whitespace-nowrap bg-[#eff6ff]/70 border-l border-sky-200">
+        {fmtNumber(r.dayLySameDow, divisor, decimals)}
+      </td>
+      <DiffCell
+        raw={r.dayDiffLySameDow}
+        divisor={divisor}
+        decimals={decimals}
+        bold={isTotal}
+        extraClass="bg-[#eff6ff]/70"
+      />
       {/* Lũy kế tháng */}
       <td className="px-1 py-1 text-right tabular-nums text-slate-900 whitespace-nowrap bg-[#f7f5ff]/70 border-l border-purple-200">
         {fmtNumber(r.mtdActual, divisor, decimals)}
@@ -114,17 +125,17 @@ function SectionTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[11.5px] leading-tight">
+      <table className="w-full border-collapse text-[11px] leading-tight">
         <thead>
           <tr>
             <th
               rowSpan={2}
-              className="px-2 py-1.5 text-center font-bold text-slate-800 bg-[#edf2ec] border border-slate-300/80 text-xs min-w-[110px]"
+              className="px-2 py-1.5 text-center font-bold text-slate-800 bg-[#edf2ec] border border-slate-300/80 text-xs min-w-[104px]"
             >
               {sectionTitle}
             </th>
             <th
-              colSpan={5}
+              colSpan={7}
               className="px-1.5 py-1 text-center font-bold text-slate-900 bg-[#f6c465] border border-amber-400/70 text-[11px]"
             >
               Hôm nay ({dowLabel})
@@ -151,6 +162,12 @@ function SectionTable({
             </th>
             <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
               So với NT
+            </th>
+            <th className="px-1 py-1 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
+              Cùng thứ NT ({sameDowShortDate || shortDate})
+            </th>
+            <th className="px-1 py-1 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
+              So cùng thứ
             </th>
             <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
               Năm nay
@@ -417,14 +434,20 @@ export default function DashboardPage() {
 
   const activeDate = data?.date || date;
   const dateInfo = (() => {
-    if (!activeDate) return { dNum: 1, mNum: 1, year: 2026, dowLabel: '' };
+    if (!activeDate) return { dNum: 1, mNum: 1, year: 2026, dowLabel: '', sameDowShortDate: '' };
     const [y, m, d] = activeDate.split('-').map(Number);
     const dt = new Date(`${activeDate}T00:00:00`);
+    let sameDowShortDate = '';
+    if (data?.sameDowLyDate) {
+      const [, lm, ld] = data.sameDowLyDate.split('-').map(Number);
+      sameDowShortDate = `${ld}/${lm}`;
+    }
     return {
       dNum: d,
       mNum: m,
       year: y,
       dowLabel: DOW_EN_VN[dt.getDay()] || '',
+      sameDowShortDate,
     };
   })();
 
