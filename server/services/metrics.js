@@ -5,8 +5,9 @@
  *  - Plan per day comes from `daily_plans`. If a kitchen has NO plan rows in a given month,
  *    fall back to locations.planned_daily_meals (and × unit_price for revenue).
  *    If the kitchen HAS plan rows in that month, missing days are treated as plan = 0 (e.g. day off).
- *  - Plan revenue: daily_plans.plan_revenue, else plan_meals × unit_price.
- *  - Actual revenue: daily_meals.actual_revenue, else actual_meals × unit_price.
+ *  - Plan revenue: strictly daily_plans.plan_revenue, else 0 (never multiply meals × unit_price).
+ *  - LY revenue: strictly daily_plans.ly_revenue, else 0.
+ *  - Actual revenue: strictly daily_meals.actual_revenue, else 0.
  *  - Comparison (variance, alert, revenue/profit impact) only counts days that HAVE actual data
  *    (D-1 logic => days not yet reported never create false alerts).
  *  - Profit impact = revenue impact × profit margin %.
@@ -67,14 +68,12 @@ function computePeriod(locations, start, end, { thresholdPct = DEFAULT_THRESHOLD
     const a = actualMap.get(key);
     const p = planMap.get(key);
     const hasPlanMonth = planMonths.has(`${loc.code_number}|${d.slice(0, 7)}`);
-    const price = Number(loc.unit_price) || 0;
-
     const planMeals = p && p.plan_meals != null ? p.plan_meals : hasPlanMonth ? 0 : loc.planned_daily_meals;
-    const planRevenue = p && p.plan_revenue != null ? p.plan_revenue : planMeals * price;
+    const planRevenue = p && p.plan_revenue != null ? p.plan_revenue : 0;
     const lyMeals = p && p.ly_meals != null ? p.ly_meals : null;
-    const lyRevenue = p && p.ly_revenue != null ? p.ly_revenue : lyMeals != null ? lyMeals * price : null;
+    const lyRevenue = p && p.ly_revenue != null ? p.ly_revenue : null;
     const actualMeals = a ? a.actual_meals : null;
-    const actualRevenue = a ? (a.actual_revenue != null ? a.actual_revenue : a.actual_meals * price) : null;
+    const actualRevenue = a ? (a.actual_revenue != null ? a.actual_revenue : 0) : null;
     return { planMeals, planRevenue, lyMeals, lyRevenue, actualMeals, actualRevenue, note: a ? a.note : '' };
   };
 

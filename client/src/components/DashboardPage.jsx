@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, RefreshCw, Utensils, DollarSign } from 'lucide-react';
+import { Calendar, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../api';
 
 const DOW_EN_VN = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
@@ -178,6 +178,48 @@ function SectionTable({
   );
 }
 
+function MealHeaderIllustration() {
+  return (
+    <svg viewBox="0 0 88 72" className="w-16 h-14 shrink-0" aria-hidden="true">
+      {/* Orange accent circle */}
+      <circle cx="58" cy="28" r="21" fill="#f96332" opacity="0.92" />
+      {/* Speech lines inside circle */}
+      <rect x="46" y="18" width="18" height="4" rx="2" fill="#fff" opacity="0.9" />
+      <rect x="46" y="25" width="24" height="4" rx="2" fill="#fff" opacity="0.75" />
+      <rect x="46" y="32" width="14" height="4" rx="2" fill="#fff" opacity="0.6" />
+      {/* Lightbulb */}
+      <circle cx="17" cy="20" r="8" fill="#fbbf24" stroke="#334155" strokeWidth="1.6" />
+      <path d="M14 28h6M15 31h4" stroke="#334155" strokeWidth="1.6" strokeLinecap="round" />
+      {/* Minimal desk & person */}
+      <circle cx="33" cy="36" r="6" fill="#fff" stroke="#334155" strokeWidth="1.8" />
+      <path d="M22 60c0-8 5-13 11-13s11 5 11 13" fill="#cbd5e1" stroke="#334155" strokeWidth="1.8" />
+      <line x1="8" y1="60" x2="78" y2="60" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
+      <rect x="52" y="54" width="18" height="6" rx="1.5" fill="#94a3b8" stroke="#334155" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function RevenueHeaderIllustration() {
+  return (
+    <svg viewBox="0 0 88 72" className="w-16 h-14 shrink-0" aria-hidden="true">
+      {/* Orange accent circle */}
+      <circle cx="58" cy="28" r="21" fill="#f96332" opacity="0.92" />
+      {/* Mini rising chart inside circle */}
+      <rect x="47" y="32" width="5" height="10" rx="1.5" fill="#fff" opacity="0.75" />
+      <rect x="55" y="26" width="5" height="16" rx="1.5" fill="#fff" opacity="0.88" />
+      <rect x="63" y="19" width="5" height="23" rx="1.5" fill="#fff" />
+      {/* Coin / lightbulb */}
+      <circle cx="17" cy="20" r="8" fill="#fbbf24" stroke="#334155" strokeWidth="1.6" />
+      <text x="17" y="24" textAnchor="middle" fontSize="10" fontWeight="800" fill="#334155">₫</text>
+      {/* Minimal desk & person */}
+      <circle cx="33" cy="36" r="6" fill="#fff" stroke="#334155" strokeWidth="1.8" />
+      <path d="M22 60c0-8 5-13 11-13s11 5 11 13" fill="#cbd5e1" stroke="#334155" strokeWidth="1.8" />
+      <line x1="8" y1="60" x2="78" y2="60" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
+      <rect x="52" y="54" width="18" height="6" rx="1.5" fill="#94a3b8" stroke="#334155" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
 function StatusPanel({
   title,
   unitLabel,
@@ -185,60 +227,120 @@ function StatusPanel({
   dateInfo,
   divisor,
   decimals,
-  icon: Icon,
+  kind = 'meal',
 }) {
   const { summary, totalRow, groupRows, blockRows, industryRows } = panelData;
 
+  const dayDiffScaled = (Number(totalRow.dayDiffPlan) || 0) / divisor;
+  const negThr = decimals > 0 ? -0.05 : -0.5;
+  const posThr = Math.abs(negThr);
+  const diffAbsStr = Math.abs(dayDiffScaled).toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  const isDayNeg = dayDiffScaled < negThr;
+  const isDayPos = dayDiffScaled > posThr;
+
+  const compClamped = Math.max(0, Math.min(100, Number(summary.completionPct) || 0));
+
   return (
-    <div className="bg-[#f8faf7] border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col gap-3">
-      {/* Panel Title */}
-      <div className="flex items-center justify-center gap-2 pt-1">
-        <div className="p-1.5 rounded-full bg-orange-100 text-orange-600">
-          <Icon className="w-4 h-4" />
+    <div className="bg-[#eef5e9] border border-[#d6e5cc] rounded-2xl shadow-sm p-4 flex flex-col gap-3">
+      {/* Editorial Infographic Header (matches Image 2 + Vietnamese) */}
+      <div className="w-full max-w-[600px] mx-auto flex items-center gap-3 pt-0.5">
+        {kind === 'meal' ? <MealHeaderIllustration /> : <RevenueHeaderIllustration />}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="inline-block text-2xl leading-none font-black text-[#f96332] select-none">
+              &ldquo;
+            </span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              {kind === 'meal' ? 'Báo cáo suất ăn hàng ngày' : 'Báo cáo doanh thu hàng ngày'}
+            </span>
+          </div>
+          <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 uppercase leading-snug">
+            {title}
+          </h2>
         </div>
-        <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 uppercase text-center">
-          {title}
-        </h2>
       </div>
 
-      {/* Hero Summary Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch px-1">
-        {/* Big Orange Pill */}
-        <div className="bg-[#f6b850] rounded-2xl px-4 py-3 flex items-baseline justify-center gap-2 shadow-inner">
-          <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight tabular-nums drop-shadow-sm">
-            {fmtHeroNumber(summary.dayActual, divisor)}
+      {/* Compact Executive Hero Summary Banner (never stretched wide) */}
+      <div className="w-full max-w-[600px] mx-auto grid grid-cols-1 sm:grid-cols-[1.02fr_1.18fr] gap-3 items-stretch">
+        {/* Left Orange Pill — Today Actual + Day vs Plan badge */}
+        <div className="bg-gradient-to-br from-[#fcb94d] to-[#f4a530] rounded-[24px] px-5 py-3.5 flex flex-col items-center justify-center gap-1.5 shadow-sm">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white/90">
+            Thực tế ngày {dateInfo.dNum}/{dateInfo.mNum}
           </span>
-          <span className="text-sm sm:text-base font-bold text-white/95">{unitLabel}</span>
+          <div className="flex items-baseline justify-center gap-1.5">
+            <span className="text-4xl sm:text-[46px] leading-none font-black text-white tracking-tight tabular-nums drop-shadow-xs">
+              {fmtHeroNumber(summary.dayActual, divisor)}
+            </span>
+            <span className="text-base sm:text-lg font-extrabold text-white/95 whitespace-nowrap">
+              {unitLabel}
+            </span>
+          </div>
+          <span
+            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold tabular-nums shadow-xs ${
+              isDayNeg
+                ? 'bg-white/95 text-[#dc2626]'
+                : isDayPos
+                ? 'bg-white/95 text-emerald-700'
+                : 'bg-white/90 text-slate-700'
+            }`}
+          >
+            {isDayNeg ? `▲ ${diffAbsStr} vs KH` : isDayPos ? `+${diffAbsStr} vs KH` : 'Đạt KH ngày'}
+          </span>
         </div>
 
-        {/* Purple-Bordered Summary Box */}
-        <div className="bg-white border-2 border-[#a78bfa] rounded-2xl px-4 py-2.5 flex flex-col justify-center gap-1 text-xs sm:text-sm">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-slate-700">Lũy kế</span>
-            <span className="font-extrabold text-slate-900 tabular-nums">
-              {fmtHeroNumber(summary.mtdActual, divisor)}{' '}
-              <span className="text-xs font-semibold text-slate-600">{unitLabel}</span>
-            </span>
+        {/* Right Purple-Bordered Box — Compact 2-column alignment + Mini Progress */}
+        <div className="bg-white/80 border-[2.5px] border-[#b197fc] rounded-[24px] px-5 py-3 flex flex-col justify-center gap-2">
+          {/* Row 1: Lũy kế */}
+          <div className="grid grid-cols-[130px_1fr] items-baseline gap-2">
+            <span className="text-xs sm:text-[13px] font-bold text-slate-700">Lũy kế tháng</span>
+            <div className="text-right tabular-nums whitespace-nowrap">
+              <span className="text-base sm:text-lg font-black text-slate-900">
+                {fmtHeroNumber(summary.mtdActual, divisor)}
+              </span>{' '}
+              <span className="text-xs font-bold text-slate-600">{unitLabel}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-slate-700">Tỉ lệ hoàn thành</span>
-            <span
-              className={`font-extrabold tabular-nums ${
-                summary.completionPct >= 100 ? 'text-emerald-600' : 'text-rose-600'
-              }`}
-            >
-              {summary.completionPct.toFixed(1)} %
-            </span>
+
+          {/* Row 2: Tỉ lệ hoàn thành + Mini progress bar */}
+          <div className="space-y-1">
+            <div className="grid grid-cols-[130px_1fr] items-baseline gap-2">
+              <span className="text-xs sm:text-[13px] font-bold text-slate-700">Tỉ lệ hoàn thành</span>
+              <span
+                className={`text-right text-base sm:text-lg font-black tabular-nums ${
+                  summary.completionPct >= 100 ? 'text-emerald-600' : 'text-[#dc2626]'
+                }`}
+              >
+                {summary.completionPct.toFixed(1)} %
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  summary.completionPct >= 100 ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+                style={{ width: `${compClamped}%` }}
+              />
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-slate-700">So với năm ngoái</span>
-            <span
-              className={`font-extrabold tabular-nums ${
-                summary.yoyPct >= 100 ? 'text-emerald-600' : 'text-rose-600'
-              }`}
-            >
-              {summary.yoyPct.toFixed(1)} %
-            </span>
+
+          {/* Row 3: So với năm ngoái */}
+          <div className="grid grid-cols-[130px_1fr] items-center gap-2">
+            <span className="text-xs sm:text-[13px] font-bold text-slate-700">So với năm ngoái</span>
+            <div className="text-right">
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs sm:text-sm font-black tabular-nums ${
+                  summary.yoyPct >= 100
+                    ? 'bg-emerald-100/90 text-emerald-700'
+                    : 'bg-rose-100/90 text-[#dc2626]'
+                }`}
+              >
+                <span>{summary.yoyPct >= 100 ? '▲' : '▼'}</span>
+                <span>{summary.yoyPct.toFixed(1)} %</span>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -384,7 +486,7 @@ export default function DashboardPage() {
             dateInfo={dateInfo}
             divisor={1000}
             decimals={1}
-            icon={Utensils}
+            kind="meal"
           />
 
           <StatusPanel
@@ -394,7 +496,7 @@ export default function DashboardPage() {
             dateInfo={dateInfo}
             divisor={1e6}
             decimals={0}
-            icon={DollarSign}
+            kind="revenue"
           />
         </div>
       )}

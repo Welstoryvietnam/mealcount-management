@@ -540,7 +540,6 @@ router.get('/alert-overview', (req, res) => {
     let rp = 0;
     let ry = 0;
     for (const loc of locs) {
-      const price = Number(loc.unit_price) || 0;
       for (const d of dates) {
         const key = `${loc.code_number}|${d}`;
         const ar = actualMap.get(key);
@@ -548,12 +547,12 @@ router.get('/alert-overview', (req, res) => {
         const hasPlanM = planMonths.has(`${loc.code_number}|${d.slice(0, 7)}`);
 
         const pm = pr && pr.plan_meals != null ? pr.plan_meals : hasPlanM ? 0 : loc.planned_daily_meals || 0;
-        const prevRev = pr && pr.plan_revenue != null ? pr.plan_revenue : pm * price;
+        const prevRev = pr && pr.plan_revenue != null ? pr.plan_revenue : 0;
         const ym = pr && pr.ly_meals != null ? pr.ly_meals : 0;
-        const yRev = pr && pr.ly_revenue != null ? pr.ly_revenue : ym * price;
+        const yRev = pr && pr.ly_revenue != null ? pr.ly_revenue : 0;
 
         const am = ar ? ar.actual_meals || 0 : 0;
-        const aRev = ar ? (ar.actual_revenue != null ? ar.actual_revenue : am * price) : 0;
+        const aRev = ar && ar.actual_revenue != null ? ar.actual_revenue : 0;
 
         a += am;
         p += pm;

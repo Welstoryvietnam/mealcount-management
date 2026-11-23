@@ -112,9 +112,29 @@ function normalizeGoogleSheetCsvUrl(rawUrl) {
 }
 
 async function fetchGoogleSheetRecords(sheetUrl) {
-  const csvUrl = normalizeGoogleSheetCsvUrl(sheetUrl);
-  if (!csvUrl) throw new Error('Chưa cấu hình URL Google Sheet.');
-  const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(20000) });
+  const raw = String(sheetUrl || '').trim();
+  if (!raw) throw new Error('Chưa cấu hình URL Google Sheet.');
+
+  const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  const wantsCsvOnly = raw.includes('output=csv') || raw.includes('format=csv');
+
+  if (match && !wantsCsvOnly) {
+    const xlsxUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=xlsx`;
+    const resp = await fetch(xlsxUrl, { redirect: 'follow', signal: AbortSignal.timeout(45000) });
+    if (!resp.ok) {
+      throw new Error(`Không tải được Google Sheet (HTTP ${resp.status}). Hãy bật chia sẻ "Bất kỳ ai có đường liên kết đều có thể xem".`);
+    }
+    const contentType = resp.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      throw new Error('Google Sheet trả về trang đăng nhập. Vui lòng bật quyền "Anyone with the link can view".');
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const sheets = await readWorkbookSheets(buf, 'GoogleSheet.xlsx');
+    if (sheets.length > 0) return sheets;
+  }
+
+  const csvUrl = normalizeGoogleSheetCsvUrl(raw);
+  const resp = await fetch(csvUrl, { redirect: 'follow', signal: AbortSignal.timeout(25000) });
   if (!resp.ok) {
     throw new Error(`Không tải được Google Sheet (HTTP ${resp.status}). Hãy bật chia sẻ "Bất kỳ ai có đường liên kết đều có thể xem".`);
   }

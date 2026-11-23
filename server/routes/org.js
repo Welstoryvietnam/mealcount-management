@@ -120,8 +120,8 @@ async function performGoogleSheetSync() {
   const idxLocCode = findCol('code_number', 'mã bếp', 'ma_bep', 'ma bep', 'ma_dia_diem');
   const idxBlock = findCol('operating_block', 'ban', 'name', 'tên khối/ban/phòng', 'ten_ban');
   const idxLocName = findCol('location_name', 'địa điểm', 'ten_bep', 'tên bếp', 'ten_dia_diem');
-  const idxIndustry = findCol('ngành nghề', 'nganh nghe', 'industry');
-  const idxGroup = findCol('group a/b', 'group', 'group_ab');
+  const idxIndustry = findCol('ngành nghề', 'nganh nghe', 'industry', 'ngành', 'nganh');
+  const idxGroup = findCol('group a/b', 'a/b', 'nhóm a/b', 'nhom a/b', 'group', 'group_ab', 'nhóm', 'nhom');
   const idxSm = findCol('sm quản lý', 'sm', 'sm_name', 'leader_name', 'người phụ trách');
   const idxAm = findCol('am quản lý', 'am', 'am_name', 'quản lý vùng');
   const idxPhone = findCol('sdt', 'sđt', 'phone', 'số điện thoại');
@@ -169,12 +169,12 @@ async function performGoogleSheetSync() {
     UPDATE locations
     SET location_name = CASE WHEN ? != '' THEN ? ELSE location_name END,
         operating_block = ?,
-        am_user_id = ?,
-        am_name = ?,
-        sm_name = ?,
-        industry = ?,
-        group_ab = ?,
-        phone = ?,
+        am_user_id = CASE WHEN ? = 1 THEN ? ELSE am_user_id END,
+        am_name = CASE WHEN ? = 1 THEN ? ELSE am_name END,
+        sm_name = CASE WHEN ? = 1 THEN ? ELSE sm_name END,
+        industry = CASE WHEN ? = 1 THEN ? ELSE industry END,
+        group_ab = CASE WHEN ? = 1 THEN ? ELSE group_ab END,
+        phone = CASE WHEN ? = 1 THEN ? ELSE phone END,
         is_active = 1,
         updated_at = datetime('now', 'localtime')
     WHERE code_number = ?
@@ -238,7 +238,24 @@ async function performGoogleSheetSync() {
       const amId = amUser ? amUser.id : null;
 
       if (getLoc.get(locCode)) {
-        updateLoc.run(locName, locName, blockName, amId, amName, smName, industry, groupAb, phone, locCode);
+        updateLoc.run(
+          locName,
+          locName,
+          blockName,
+          idxAm !== -1 || idxAmUser !== -1 ? 1 : 0,
+          amId,
+          idxAm !== -1 ? 1 : 0,
+          amName,
+          idxSm !== -1 ? 1 : 0,
+          smName,
+          idxIndustry !== -1 ? 1 : 0,
+          industry,
+          idxGroup !== -1 ? 1 : 0,
+          groupAb,
+          idxPhone !== -1 ? 1 : 0,
+          phone,
+          locCode
+        );
         updated++;
       } else {
         insertLoc.run(locCode, locName || locCode, blockName, amId, amName, smName, industry, groupAb, phone);
