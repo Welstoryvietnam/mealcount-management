@@ -155,13 +155,43 @@ function initSchema() {
     `);
   }
 
-  // Safe migration for locations AM columns
+  // Safe migration for locations AM & Org columns
   const locCols = db.prepare('PRAGMA table_info(locations)').all().map((c) => c.name);
   if (!locCols.includes('am_user_id')) {
     db.exec('ALTER TABLE locations ADD COLUMN am_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;');
   }
   if (!locCols.includes('am_name')) {
     db.exec("ALTER TABLE locations ADD COLUMN am_name TEXT DEFAULT '';");
+  }
+  if (!locCols.includes('industry')) {
+    db.exec("ALTER TABLE locations ADD COLUMN industry TEXT DEFAULT '';");
+  }
+  if (!locCols.includes('group_ab')) {
+    db.exec("ALTER TABLE locations ADD COLUMN group_ab TEXT DEFAULT '';");
+  }
+  if (!locCols.includes('phone')) {
+    db.exec("ALTER TABLE locations ADD COLUMN phone TEXT DEFAULT '';");
+  }
+  if (!locCols.includes('sm_name')) {
+    db.exec("ALTER TABLE locations ADD COLUMN sm_name TEXT DEFAULT '';");
+  }
+
+  // Safe migration for 2-way Google Sheet sync (push webhook)
+  const orgSyncCols = db.prepare('PRAGMA table_info(org_sync_config)').all().map((c) => c.name);
+  if (!orgSyncCols.includes('push_webhook_url')) {
+    db.exec("ALTER TABLE org_sync_config ADD COLUMN push_webhook_url TEXT DEFAULT '';");
+  }
+  if (!orgSyncCols.includes('auto_push_enabled')) {
+    db.exec('ALTER TABLE org_sync_config ADD COLUMN auto_push_enabled INTEGER NOT NULL DEFAULT 1;');
+  }
+  if (!orgSyncCols.includes('last_push_at')) {
+    db.exec("ALTER TABLE org_sync_config ADD COLUMN last_push_at TEXT DEFAULT '';");
+  }
+  if (!orgSyncCols.includes('last_push_status')) {
+    db.exec("ALTER TABLE org_sync_config ADD COLUMN last_push_status TEXT DEFAULT '';");
+  }
+  if (!orgSyncCols.includes('last_push_message')) {
+    db.exec("ALTER TABLE org_sync_config ADD COLUMN last_push_message TEXT DEFAULT '';");
   }
 }
 
@@ -256,9 +286,12 @@ function seedData() {
     }
   }
 
+  const defaultOrgSheetUrl = 'https://docs.google.com/spreadsheets/d/1fyWdPUONKfs5yzETBwuop6LmBpgHh2CGWh0Ns9q2bJ4/edit?usp=sharing';
   const syncRow = db.prepare('SELECT COUNT(*) AS cnt FROM org_sync_config').get().cnt;
   if (syncRow === 0) {
-    db.prepare(`INSERT INTO org_sync_config (id, sheet_url, sheet_gid, auto_sync_enabled, sync_interval_minutes) VALUES (1, '', '0', 0, 30)`).run();
+    db.prepare(`INSERT INTO org_sync_config (id, sheet_url, sheet_gid, auto_sync_enabled, sync_interval_minutes) VALUES (1, ?, '0', 1, 30)`).run(defaultOrgSheetUrl);
+  } else {
+    db.prepare("UPDATE org_sync_config SET sheet_url = ? WHERE id = 1 AND (sheet_url IS NULL OR sheet_url = '')").run(defaultOrgSheetUrl);
   }
 
   const dataSyncInsert = db.prepare(`

@@ -18,8 +18,8 @@ export default function Layout({ activeTab, setActiveTab, children }) {
   const { user, logout } = useAuth();
 
   const navItems = [
-    { id: 'dashboard1', label: 'Dashboard 1: Tình hình Suất ăn', icon: LayoutDashboard, roles: ['admin', 'block_manager', 'site_staff', 'viewer'] },
-    { id: 'dashboard', label: 'Dashboard 2: Cảnh báo & Xu hướng', icon: BarChart3, roles: ['admin', 'block_manager', 'site_staff', 'viewer'] },
+    { id: 'dashboard1', label: 'Dashboard 1: Cảnh báo Suất ăn', icon: LayoutDashboard, roles: ['admin', 'block_manager', 'site_staff', 'viewer'] },
+    { id: 'dashboard', label: 'Dashboard 2: Thực trạng Suất ăn & DT', icon: BarChart3, roles: ['admin', 'block_manager', 'site_staff', 'viewer'] },
     { id: 'meals', label: 'Thực tế D-1 (Suất & DT)', icon: CalendarCheck, roles: ['admin', 'block_manager', 'site_staff'] },
     { id: 'standards', label: 'Kế hoạch & Năm trước', icon: SlidersHorizontal, roles: ['admin', 'block_manager', 'viewer'] },
     { id: 'reports', label: 'Báo cáo Excel & Email', icon: FileSpreadsheet, roles: ['admin', 'block_manager', 'site_staff', 'viewer'] },
@@ -92,7 +92,7 @@ export default function Layout({ activeTab, setActiveTab, children }) {
 
       {/* Main content */}
       <main className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-7xl mx-auto p-6">{children}</div>
+        <div className="max-w-[1600px] mx-auto p-5">{children}</div>
       </main>
     </div>
   );

@@ -1,7 +1,7 @@
 const express = require('express');
 const { db } = require('../db');
-const { getScopedLocations, requireAuth } = require('../auth');
-const { computePeriod, summarize, monthBounds } = require('../services/metrics');
+const { getScopedLocations, canAccessLocation, requireAuth } = require('../auth');
+const { computePeriod, summarize, monthBounds, dateList } = require('../services/metrics');
 const { getYesterdayISO, shiftDateISO, DEFAULT_THRESHOLD_PCT } = require('../utils/calculations');
 
 const router = express.Router();
@@ -325,6 +325,527 @@ router.get('/exec-report', (req, res) => {
     weeklyTotals,
     weeklyChartData,
     kitchenRows,
+  });
+});
+
+// ============================================================
+// Helper utilities for Dashboard 1 (alert-overview) & Dashboard 2 (exec-status)
+// ============================================================
+const INDUSTRY_ORDER = [
+  'Sản xuất_Bán dẫn',
+  'Sản xuất_Đồ dùng sinh hoạt',
+  'Sản xuất_Điện thoại',
+  'Sản xuất_Thiết bị/xây dựng',
+  'Sản xuất_Sản xuất',
+  'Sản xuất_Khác',
+  'Sản xuất_Điện cơ',
+  'Sản xuất_Ô tô',
+  'Sản xuất_Thực phẩm/thuốc',
+  'Sản xuất_Hóa chất',
+  'Sản xuất_Kim loại',
+  'Văn phòng_Tài chính',
+  'Văn phòng_Nghiên cứu',
+  'Nhà hàng',
+];
+
+const INDUSTRY_COLORS = [
+  '#2563eb',
+  '#16a34a',
+  '#d97706',
+  '#9333ea',
+  '#0891b2',
+  '#dc2626',
+  '#db2777',
+  '#4f46e5',
+  '#0d9488',
+  '#ca8a04',
+  '#ea580c',
+  '#65a30d',
+  '#7c3aed',
+  '#0284c7',
+  '#64748b',
+];
+
+const SCOPE_DEFS = [
+  { key: 'all', label: 'Cả công ty' },
+  { key: 'A', label: 'Nhóm A' },
+  { key: 'B', label: 'Nhóm B' },
+  { key: 'FS1', label: 'ĐH 1' },
+  { key: 'FS2', label: 'ĐH 2' },
+  { key: 'FS3', label: 'ĐH 3' },
+  { key: 'FS4', label: 'ĐH 4' },
+  { key: 'FS5', label: 'ĐH 5' },
+  { key: 'Chi nhánh HCM', label: 'HCM' },
+];
+
+function matchScope(loc, scope) {
+  if (!scope || scope === 'all') return true;
+  if (scope === 'A' || scope === 'B') return (loc.group_ab || '').toUpperCase() === scope;
+  return loc.operating_block === scope;
+}
+
+function fmtDM(iso) {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+function dowShortVN(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  return ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][d.getDay()];
+}
+
+function shiftMonthYM(ym, deltaMonths) {
+  const [y, m] = ym.split('-').map(Number);
+  const dt = new Date(y, m - 1 + deltaMonths, 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function daysBetweenISO(a, b) {
+  const da = new Date(`${a}T00:00:00`);
+  const db2 = new Date(`${b}T00:00:00`);
+  return Math.round((db2 - da) / 86400000);
+}
+
+function monthRangeClipped(asOfDate, k) {
+  const ym = shiftMonthYM(asOfDate.slice(0, 7), -k);
+  const { first, last } = monthBounds(ym);
+  const clippedEnd = last > asOfDate ? asOfDate : last;
+  return { ym, start: first, end: clippedEnd, monthNum: Number(ym.slice(5, 7)), year: Number(ym.slice(0, 4)) };
+}
+
+/**
+ * Dashboard 1: Alert & Trend Overview (Matches user's HTML template with real synced Google Sheet data)
+ * GET /api/dashboard/alert-overview?mode=d|w|m&sel=0&scope=all&thr=3
+ */
+router.get('/alert-overview', (req, res) => {
+  const mode = ['d', 'w', 'm'].includes(req.query.mode) ? req.query.mode : 'd';
+  const sel = Math.max(0, parseInt(req.query.sel, 10) || 0);
+  const scope = req.query.scope || 'all';
+  const thr = Math.max(1, Math.min(50, Number(req.query.thr) || 3));
+
+  const asOfDate = getDefaultReportDate();
+
+  // Build period options for dropdown
+  const periodOptions = [];
+  if (mode === 'd') {
+    for (let k = 0; k < 30; k++) {
+      const d = shiftDateISO(asOfDate, -k);
+      periodOptions.push({
+        value: k,
+        label: `Ngày ${fmtDM(d)}/${d.slice(0, 4)} (${dowShortVN(d)})${k === 0 ? ' - mới nhất' : ''}`,
+      });
+    }
+  } else if (mode === 'w') {
+    for (let k = 0; k < 8; k++) {
+      const e = shiftDateISO(asOfDate, -7 * k);
+      const s = shiftDateISO(e, -6);
+      periodOptions.push({
+        value: k,
+        label: `Tuần ${fmtDM(s)} - ${fmtDM(e)}${k === 0 ? ' - mới nhất' : ''}`,
+      });
+    }
+  } else {
+    for (let k = 0; k < 6; k++) {
+      const mr = monthRangeClipped(asOfDate, k);
+      periodOptions.push({
+        value: k,
+        label: `Tháng ${mr.monthNum}/${mr.year}${k === 0 ? ' (MTD) - mới nhất' : ''}`,
+      });
+    }
+  }
+
+  const safeSel = Math.min(sel, Math.max(0, periodOptions.length - 1));
+
+  // Determine curRange, prevRange, and trend buckets
+  let curRange;
+  let prevRange;
+  const buckets = [];
+
+  if (mode === 'd') {
+    const e = shiftDateISO(asOfDate, -safeSel);
+    curRange = [e, e];
+    prevRange = [shiftDateISO(e, -7), shiftDateISO(e, -7)];
+    for (let k = 13; k >= 0; k--) {
+      const d = shiftDateISO(e, -k);
+      buckets.push({ start: d, end: d, label: fmtDM(d) });
+    }
+  } else if (mode === 'w') {
+    const e = shiftDateISO(asOfDate, -7 * safeSel);
+    curRange = [shiftDateISO(e, -6), e];
+    prevRange = [shiftDateISO(e, -13), shiftDateISO(e, -7)];
+    for (let k = 7; k >= 0; k--) {
+      const we = shiftDateISO(e, -7 * k);
+      buckets.push({ start: shiftDateISO(we, -6), end: we, label: `-${fmtDM(we)}` });
+    }
+  } else {
+    const curM = monthRangeClipped(asOfDate, safeSel);
+    const prevM = monthRangeClipped(asOfDate, safeSel + 1);
+    const len = Math.max(1, daysBetweenISO(curM.start, curM.end) + 1);
+    const prevEndTarget = shiftDateISO(prevM.start, len - 1);
+    curRange = [curM.start, curM.end];
+    prevRange = [prevM.start, prevEndTarget > prevM.end ? prevM.end : prevEndTarget];
+    for (let k = safeSel + 5; k >= safeSel; k--) {
+      const mr = monthRangeClipped(asOfDate, k);
+      buckets.push({ start: mr.start, end: mr.end, label: `T${mr.monthNum}` });
+    }
+  }
+
+  // Determine overall min/max date to fetch in one query
+  const allStarts = [curRange[0], prevRange[0], ...buckets.map((b) => b.start)];
+  const allEnds = [curRange[1], prevRange[1], ...buckets.map((b) => b.end)];
+  const minDate = allStarts.reduce((a, b) => (a < b ? a : b));
+  const maxDate = allEnds.reduce((a, b) => (a > b ? a : b));
+
+  // Load all user-scoped locations (open + closed)
+  const allLocsRaw = db.prepare('SELECT * FROM locations ORDER BY operating_block, code_number').all();
+  const userLocs = allLocsRaw.filter((l) => canAccessLocation(req.user, l));
+  const openAll = userLocs.filter((l) => l.is_active === 1);
+  const closedAll = userLocs.filter((l) => l.is_active === 0);
+
+  const scopedOpen = openAll.filter((l) => matchScope(l, scope));
+  const scopedClosed = closedAll.filter((l) => matchScope(l, scope));
+  const userCodes = new Set(userLocs.map((l) => l.code_number));
+
+  // Fetch daily_meals & daily_plans once
+  const actualRows = db
+    .prepare('SELECT code_number, date, actual_meals, actual_revenue FROM daily_meals WHERE date >= ? AND date <= ?')
+    .all(minDate, maxDate)
+    .filter((r) => userCodes.has(r.code_number));
+
+  const planRows = db
+    .prepare('SELECT code_number, date, plan_meals, plan_revenue, ly_meals, ly_revenue FROM daily_plans WHERE date >= ? AND date <= ?')
+    .all(minDate, maxDate)
+    .filter((r) => userCodes.has(r.code_number));
+
+  const mStart = monthBounds(minDate.slice(0, 7)).first;
+  const mEnd = monthBounds(maxDate.slice(0, 7)).last;
+  const planMonths = new Set(
+    db
+      .prepare(
+        `SELECT DISTINCT code_number || '|' || substr(date, 1, 7) AS k
+         FROM daily_plans WHERE date >= ? AND date <= ? AND plan_meals IS NOT NULL`
+      )
+      .all(mStart, mEnd)
+      .map((r) => r.k)
+  );
+
+  const actualMap = new Map(actualRows.map((r) => [`${r.code_number}|${r.date}`, r]));
+  const planMap = new Map(planRows.map((r) => [`${r.code_number}|${r.date}`, r]));
+
+  function sumRangeForLocs(locs, range) {
+    const dates = dateList(range[0], range[1], 400);
+    let a = 0;
+    let p = 0;
+    let y = 0;
+    let ra = 0;
+    let rp = 0;
+    let ry = 0;
+    for (const loc of locs) {
+      const price = Number(loc.unit_price) || 0;
+      for (const d of dates) {
+        const key = `${loc.code_number}|${d}`;
+        const ar = actualMap.get(key);
+        const pr = planMap.get(key);
+        const hasPlanM = planMonths.has(`${loc.code_number}|${d.slice(0, 7)}`);
+
+        const pm = pr && pr.plan_meals != null ? pr.plan_meals : hasPlanM ? 0 : loc.planned_daily_meals || 0;
+        const prevRev = pr && pr.plan_revenue != null ? pr.plan_revenue : pm * price;
+        const ym = pr && pr.ly_meals != null ? pr.ly_meals : 0;
+        const yRev = pr && pr.ly_revenue != null ? pr.ly_revenue : ym * price;
+
+        const am = ar ? ar.actual_meals || 0 : 0;
+        const aRev = ar ? (ar.actual_revenue != null ? ar.actual_revenue : am * price) : 0;
+
+        a += am;
+        p += pm;
+        y += ym;
+        ra += aRev;
+        rp += prevRev;
+        ry += yRev;
+      }
+    }
+    return { a, p, y, ra, rp, ry };
+  }
+
+  // Compute current, prev, and bucket aggregates for scopedOpen
+  const curAgg = sumRangeForLocs(scopedOpen, curRange);
+  const prevAgg = sumRangeForLocs(scopedOpen, prevRange);
+
+  // Per-location alert evaluation
+  const mealAlerts = [];
+  let revAlertCount = 0;
+  for (const loc of scopedOpen) {
+    const c = sumRangeForLocs([loc], curRange);
+    const pr = sumRangeForLocs([loc], prevRange);
+    // Skip kitchens with no actual data reported in current or previous period
+    if (c.a > 0 && pr.a > 0) {
+      const deltaPct = ((c.a / pr.a) - 1) * 100;
+      if (deltaPct <= -thr) {
+        const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
+        mealAlerts.push({
+          code_number: loc.code_number,
+          location_name: loc.location_name,
+          operating_block: loc.operating_block,
+          group_ab: loc.group_ab || '',
+          curActual: Math.round(c.a),
+          prevActual: Math.round(pr.a),
+          deltaPct: Number(deltaPct.toFixed(1)),
+          attPct: Number(attPct.toFixed(1)),
+        });
+      }
+    }
+    if (c.ra > 0 && pr.ra > 0) {
+      const rDeltaPct = ((c.ra / pr.ra) - 1) * 100;
+      if (rDeltaPct <= -thr) revAlertCount++;
+    }
+  }
+  mealAlerts.sort((a, b) => a.deltaPct - b.deltaPct);
+
+  // Main trend chart (Actual vs Plan)
+  const trendSeries = buckets.map((b) => {
+    const ag = sumRangeForLocs(scopedOpen, [b.start, b.end]);
+    return {
+      label: b.label,
+      actual: Math.round(ag.a),
+      plan: Math.round(ag.p),
+    };
+  });
+
+  // Industry breakdown (only industries present in scopedOpen)
+  const indGroups = new Map();
+  for (const loc of scopedOpen) {
+    const ind = (loc.industry || '').trim() || 'Khác';
+    if (!indGroups.has(ind)) indGroups.set(ind, []);
+    indGroups.get(ind).push(loc);
+  }
+  const industryRows = [...indGroups.entries()]
+    .map(([ind, locs]) => {
+      const c = sumRangeForLocs(locs, curRange);
+      const pr = sumRangeForLocs(locs, prevRange);
+      const series = buckets.map((b) => Math.round(sumRangeForLocs(locs, [b.start, b.end]).a));
+      const deltaPct = pr.a > 0 ? ((c.a / pr.a) - 1) * 100 : 0;
+      const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
+      return {
+        industry: ind,
+        actual: Math.round(c.a),
+        plan: Math.round(c.p),
+        attPct: Number(attPct.toFixed(1)),
+        deltaPct: Number(deltaPct.toFixed(1)),
+        series,
+      };
+    })
+    .filter((r) => r.actual > 0 || r.plan > 0)
+    .sort((a, b) => b.actual - a.actual)
+    .map((r, idx) => ({
+      ...r,
+      color: INDUSTRY_COLORS[idx % INDUSTRY_COLORS.length],
+    }));
+
+  // Segment comparison table (always across openAll)
+  const segmentRows = SCOPE_DEFS.map((sd) => {
+    const locs = openAll.filter((l) => matchScope(l, sd.key));
+    const c = sumRangeForLocs(locs, curRange);
+    const pr = sumRangeForLocs(locs, prevRange);
+    const series = buckets.map((b) => Math.round(sumRangeForLocs(locs, [b.start, b.end]).a));
+    const deltaPct = pr.a > 0 ? ((c.a / pr.a) - 1) * 100 : 0;
+    const attPct = c.p > 0 ? (c.a / c.p) * 100 : 0;
+    const yoyPct = c.y > 0 ? ((c.a / c.y) - 1) * 100 : null;
+    return {
+      key: sd.key,
+      label: sd.label,
+      actual: Math.round(c.a),
+      plan: Math.round(c.p),
+      attPct: Number(attPct.toFixed(1)),
+      deltaPct: Number(deltaPct.toFixed(1)),
+      yoyPct: yoyPct !== null ? Number(yoyPct.toFixed(1)) : null,
+      series,
+    };
+  });
+
+  const mealDeltaPct = prevAgg.a > 0 ? ((curAgg.a / prevAgg.a) - 1) * 100 : 0;
+  const mealAttPct = curAgg.p > 0 ? (curAgg.a / curAgg.p) * 100 : 0;
+  const mealYoyPct = curAgg.y > 0 ? ((curAgg.a / curAgg.y) - 1) * 100 : null;
+
+  const revDeltaPct = prevAgg.ra > 0 ? ((curAgg.ra / prevAgg.ra) - 1) * 100 : 0;
+  const revAttPct = curAgg.rp > 0 ? (curAgg.ra / curAgg.rp) * 100 : 0;
+  const revYoyPct = curAgg.ry > 0 ? ((curAgg.ra / curAgg.ry) - 1) * 100 : null;
+
+  res.json({
+    asOfDate,
+    mode,
+    sel: safeSel,
+    scope,
+    thr,
+    scopes: SCOPE_DEFS,
+    periodOptions,
+    curRange,
+    prevRange,
+    buckets: buckets.map((b) => b.label),
+    openCount: scopedOpen.length,
+    closedLocations: scopedClosed.map((l) => ({ code_number: l.code_number, location_name: l.location_name })),
+    mealKpi: {
+      actual: Math.round(curAgg.a),
+      plan: Math.round(curAgg.p),
+      diff: Math.round(curAgg.a - curAgg.p),
+      attPct: Number(mealAttPct.toFixed(1)),
+      prevActual: Math.round(prevAgg.a),
+      deltaPrevPct: Number(mealDeltaPct.toFixed(1)),
+      lyActual: Math.round(curAgg.y),
+      yoyPct: mealYoyPct !== null ? Number(mealYoyPct.toFixed(1)) : null,
+      alertCount: mealAlerts.length,
+    },
+    revenueKpi: {
+      actual: Number((curAgg.ra / 1e6).toFixed(1)),
+      plan: Number((curAgg.rp / 1e6).toFixed(1)),
+      diff: Number(((curAgg.ra - curAgg.rp) / 1e6).toFixed(1)),
+      attPct: Number(revAttPct.toFixed(1)),
+      prevActual: Number((prevAgg.ra / 1e6).toFixed(1)),
+      deltaPrevPct: Number(revDeltaPct.toFixed(1)),
+      lyActual: Number((curAgg.ry / 1e6).toFixed(1)),
+      yoyPct: revYoyPct !== null ? Number(revYoyPct.toFixed(1)) : null,
+      alertCount: revAlertCount,
+    },
+    trendSeries,
+    industryRows,
+    segmentRows,
+    alertRows: mealAlerts,
+  });
+});
+
+/**
+ * Dashboard 2: Executive Side-by-Side Meal & Revenue Status (Matches attached image 2)
+ * GET /api/dashboard/exec-status?date=YYYY-MM-DD
+ */
+router.get('/exec-status', (req, res) => {
+  const date = req.query.date || getDefaultReportDate();
+  const locations = getScopedLocations(req.user);
+
+  const month = date.slice(0, 7);
+  const { first: firstOfMonth } = monthBounds(month);
+
+  const dayData = computePeriod(locations, date, date);
+  const mtdData = computePeriod(locations, firstOfMonth, date);
+  const mtdMap = new Map(mtdData.items.map((i) => [i.code_number, i]));
+
+  const emptyMetric = (label) => ({
+    label,
+    dayActual: 0,
+    dayPlan: 0,
+    dayLy: 0,
+    mtdActual: 0,
+    mtdPlan: 0,
+    mtdLy: 0,
+  });
+
+  const addVals = (target, da, dp, dl, ma, mp, ml) => {
+    target.dayActual += da;
+    target.dayPlan += dp;
+    target.dayLy += dl;
+    target.mtdActual += ma;
+    target.mtdPlan += mp;
+    target.mtdLy += ml;
+  };
+
+  const finalizeRow = (r) => ({
+    ...r,
+    dayDiffPlan: r.dayActual - r.dayPlan,
+    dayDiffLy: r.dayActual - r.dayLy,
+    mtdDiffPlan: r.mtdActual - r.mtdPlan,
+    mtdDiffLy: r.mtdActual - r.mtdLy,
+  });
+
+  function buildPanel(isRevenue) {
+    const groupMap = new Map([
+      ['A', emptyMetric('A')],
+      ['B', emptyMetric('B')],
+    ]);
+
+    const blockOrderDisplay = [
+      { key: 'FS1', label: 'FS 1' },
+      { key: 'FS2', label: 'FS 2' },
+      { key: 'FS3', label: 'FS 3' },
+      { key: 'FS4', label: 'FS 4' },
+      { key: 'FS5', label: 'FS 5' },
+      { key: 'Chi nhánh HCM', label: 'HCM' },
+    ];
+    const blockMap = new Map(blockOrderDisplay.map((b) => [b.key, emptyMetric(b.label)]));
+
+    const indMap = new Map();
+    for (const ind of INDUSTRY_ORDER) {
+      indMap.set(ind, emptyMetric(ind));
+    }
+
+    const totalAll = emptyMetric('Tổng');
+
+    for (const dItem of dayData.items) {
+      const mItem = mtdMap.get(dItem.code_number) || {};
+      const da = isRevenue ? dItem.actualRevenue || 0 : dItem.actualMeals || 0;
+      const dp = isRevenue ? dItem.planRevenueFull || 0 : dItem.planMealsFull || 0;
+      const dl = isRevenue ? dItem.lyRevenueFull || 0 : dItem.lyMealsFull || 0;
+
+      const ma = isRevenue ? mItem.actualRevenue || 0 : mItem.actualMeals || 0;
+      const mp = isRevenue ? mItem.planRevenueFull || 0 : mItem.planMealsFull || 0;
+      const ml = isRevenue ? mItem.lyRevenueFull || 0 : mItem.lyMealsFull || 0;
+
+      addVals(totalAll, da, dp, dl, ma, mp, ml);
+
+      // Group A/B
+      const gKey = (dItem.group_ab || '').toUpperCase();
+      if (gKey === 'A' || gKey === 'B') {
+        addVals(groupMap.get(gKey), da, dp, dl, ma, mp, ml);
+      } else if (da || dp || dl || ma || mp || ml) {
+        if (!groupMap.has('Khác')) groupMap.set('Khác', emptyMetric('Khác'));
+        addVals(groupMap.get('Khác'), da, dp, dl, ma, mp, ml);
+      }
+
+      // Operating Block
+      if (blockMap.has(dItem.operating_block)) {
+        addVals(blockMap.get(dItem.operating_block), da, dp, dl, ma, mp, ml);
+      } else if (da || dp || dl || ma || mp || ml) {
+        if (!blockMap.has(dItem.operating_block)) {
+          blockMap.set(dItem.operating_block, emptyMetric(dItem.operating_block));
+        }
+        addVals(blockMap.get(dItem.operating_block), da, dp, dl, ma, mp, ml);
+      }
+
+      // Industry
+      const indKey = (dItem.industry || '').trim() || 'Khác';
+      if (!indMap.has(indKey)) indMap.set(indKey, emptyMetric(indKey));
+      addVals(indMap.get(indKey), da, dp, dl, ma, mp, ml);
+    }
+
+    const totalRow = finalizeRow(totalAll);
+    const completionPct =
+      totalRow.mtdPlan > 0 ? Number(((totalRow.mtdActual / totalRow.mtdPlan) * 100).toFixed(1)) : 0;
+    const yoyPct =
+      totalRow.mtdLy > 0 ? Number(((totalRow.mtdActual / totalRow.mtdLy) * 100).toFixed(1)) : 0;
+
+    // Keep INDUSTRY_ORDER rows that exist in DB or have data, plus any extra non-zero industries
+    const dbIndustries = new Set(locations.map((l) => (l.industry || '').trim()).filter(Boolean));
+    const industryRows = [...indMap.entries()]
+      .filter(([k, v]) => dbIndustries.has(k) || v.dayActual || v.dayPlan || v.mtdActual || v.mtdPlan)
+      .map(([, v]) => finalizeRow(v));
+
+    return {
+      summary: {
+        dayActual: totalRow.dayActual,
+        mtdActual: totalRow.mtdActual,
+        mtdPlan: totalRow.mtdPlan,
+        mtdLy: totalRow.mtdLy,
+        completionPct,
+        yoyPct,
+      },
+      totalRow,
+      groupRows: [...groupMap.values()].map(finalizeRow),
+      blockRows: [...blockMap.values()].map(finalizeRow),
+      industryRows,
+    };
+  }
+
+  res.json({
+    date,
+    month,
+    meals: buildPanel(false),
+    revenue: buildPanel(true),
   });
 });
 

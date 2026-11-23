@@ -1,724 +1,635 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  RefreshCw,
-  Search,
-  Download,
-  Utensils,
-  DollarSign,
-  Target,
-  TrendingUp,
-  Calendar,
-  Building2,
-  BarChart3,
-  Layers,
-} from 'lucide-react';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Legend,
-} from 'recharts';
-import { apiFetch, downloadFile, getYesterdayISO } from '../api';
+import { RefreshCw } from 'lucide-react';
+import { apiFetch } from '../api';
 
-const DOW_VN = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
-
-const LINE_COLORS = [
-  '#2563eb',
-  '#ea580c',
-  '#0d9488',
-  '#eab308',
-  '#7c3aed',
-  '#16a34a',
-  '#db2777',
+const MODES = [
+  ['d', 'Ngày'],
+  ['w', 'Tuần'],
+  ['m', 'Tháng'],
 ];
 
-const WEEK_LABELS_VN = {
-  '1주': 'Tuần 1',
-  '2주': 'Tuần 2',
-  '3주': 'Tuần 3',
-  '4주': 'Tuần 4',
+const nf = (v) => Math.round(Number(v) || 0).toLocaleString('vi-VN');
+const pc = (v) => {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+  const n = Number(v);
+  return (n > 0 ? '+' : '') + n.toFixed(1).replace('.', ',') + '%';
 };
+const fmtPct = (v) => `${(Number(v) || 0).toFixed(1).replace('.', ',')}%`;
 
-function fmtThousand(meals, decimals = 1) {
-  const v = (Number(meals) || 0) / 1000;
-  return v.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+function fmtDateVN(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${Number(d)}/${Number(m)}/${y}`;
 }
 
-function fmtBillionVND(vnd) {
-  const b = (Number(vnd) || 0) / 1e9;
-  return b.toLocaleString('en-US', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
-}
-
-function displayBlockLabel(b) {
-  if (b === 'Chi nhánh HCM') return 'HCM';
-  if (/^FS(\d+)$/i.test(b)) return b.replace(/^FS(\d+)$/i, 'FS $1');
-  return b;
-}
-
-function VariancePill({ diff, unitDivisor = 1000, decimals = 1 }) {
-  const val = (Number(diff) || 0) / unitDivisor;
-  const threshold = decimals === 0 ? -0.5 : -0.04;
-  const isNeg = val < threshold;
-  const isPos = val > Math.abs(threshold);
-  const absStr = Math.abs(val).toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-
-  if (isNeg) {
+function StatusBadge({ v, thr }) {
+  if (v <= -10) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200/80">
-        △{absStr}
+      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-600">
+        Nghiêm trọng
       </span>
     );
   }
-  if (isPos) {
+  if (v <= -thr) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-        +{absStr}
+      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+        Cảnh báo
       </span>
     );
   }
-  return <span className="text-xs text-slate-500 font-medium">0.0</span>;
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+      Ổn định
+    </span>
+  );
+}
+
+function TrendLineSVG({ series }) {
+  if (!series || series.length === 0) {
+    return <div className="text-xs text-slate-400 py-8 text-center">Chưa có dữ liệu xu hướng</div>;
+  }
+  const W = 720;
+  const H = 230;
+  const pl = 56;
+  const pr = 16;
+  const pt = 12;
+  const pb = 28;
+
+  const actuals = series.map((s) => s.actual);
+  const plans = series.map((s) => s.plan);
+  const all = actuals.concat(plans);
+  const rawMax = Math.max(...all, 1);
+  const rawMin = Math.min(...all, 0);
+  const mx = rawMax * 1.08;
+  const mn = rawMin > 0 ? rawMin * 0.85 : 0;
+  const denom = mx - mn || 1;
+
+  const X = (i) =>
+    series.length === 1 ? (W + pl - pr) / 2 : pl + (i * (W - pl - pr)) / (series.length - 1);
+  const Y = (v) => pt + (H - pt - pb) * (1 - (v - mn) / denom);
+
+  const pts = (arr) => arr.map((v, i) => `${X(i)},${Y(v)}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Xu hướng suất ăn">
+      {[0, 1, 2, 3, 4].map((g) => {
+        const v = mn + ((mx - mn) * g) / 4;
+        const y = Y(v);
+        return (
+          <g key={g}>
+            <line x1={pl} x2={W - pr} y1={y} y2={y} stroke="#e3e8ee" />
+            <text x={pl - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#6b7785">
+              {nf(v)}
+            </text>
+          </g>
+        );
+      })}
+      {series.map((b, i) =>
+        series.length < 10 || i % 2 === series.length % 2 ? (
+          <text key={i} x={X(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="#6b7785">
+            {b.label}
+          </text>
+        ) : null
+      )}
+      <polyline
+        points={pts(plans)}
+        fill="none"
+        stroke="#9aa6b5"
+        strokeWidth="2"
+        strokeDasharray="5 4"
+      />
+      <polyline points={pts(actuals)} fill="none" stroke="#2563eb" strokeWidth="2.5" />
+      {actuals.map((v, i) => (
+        <circle key={i} cx={X(i)} cy={Y(v)} r="3.2" fill="#2563eb">
+          <title>{`${series[i].label}: ${nf(v)} / KH ${nf(plans[i])}`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+function MultiLineSVG({ buckets, rows }) {
+  if (!buckets || buckets.length === 0 || !rows || rows.length === 0) {
+    return <div className="text-xs text-slate-400 py-8 text-center">Chưa có dữ liệu ngành nghề</div>;
+  }
+  const W = 720;
+  const H = 230;
+  const pl = 56;
+  const pr = 16;
+  const pt = 12;
+  const pb = 28;
+
+  const allVals = rows.flatMap((r) => r.series);
+  const mx = Math.max(...allVals, 1) * 1.08;
+
+  const X = (i) =>
+    buckets.length === 1 ? (W + pl - pr) / 2 : pl + (i * (W - pl - pr)) / (buckets.length - 1);
+  const Y = (v) => pt + (H - pt - pb) * (1 - v / mx);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Xu hướng theo ngành nghề">
+      {[0, 1, 2, 3, 4].map((g) => {
+        const v = (mx * g) / 4;
+        const y = Y(v);
+        return (
+          <g key={g}>
+            <line x1={pl} x2={W - pr} y1={y} y2={y} stroke="#e3e8ee" />
+            <text x={pl - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#6b7785">
+              {nf(v)}
+            </text>
+          </g>
+        );
+      })}
+      {buckets.map((label, i) =>
+        buckets.length < 10 || i % 2 === buckets.length % 2 ? (
+          <text key={i} x={X(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="#6b7785">
+            {label}
+          </text>
+        ) : null
+      )}
+      {rows.map((r) => (
+        <g key={r.industry}>
+          <polyline
+            fill="none"
+            stroke={r.color}
+            strokeWidth="2.1"
+            points={r.series.map((v, i) => `${X(i)},${Y(v)}`).join(' ')}
+          />
+          {r.series.map((v, i) => (
+            <circle key={i} cx={X(i)} cy={Y(v)} r="2.5" fill={r.color}>
+              <title>{`${r.industry} ${buckets[i]}: ${nf(v)}`}</title>
+            </circle>
+          ))}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function Sparkline({ series }) {
+  if (!series || series.length < 2) return null;
+  const mx = Math.max(...series);
+  const mn = Math.min(...series);
+  const w = 90;
+  const h = 24;
+  const denom = mx - mn || 1;
+  const points = series
+    .map((v, i) => `${(i * (w - 2)) / (series.length - 1) + 1},${h - 2 - ((h - 4) * (v - mn)) / denom}`)
+    .join(' ');
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="inline-block align-middle">
+      <polyline fill="none" stroke="#2563eb" strokeWidth="1.8" points={points} />
+    </svg>
+  );
+}
+
+function formatBlockShort(block) {
+  if (block === 'Chi nhánh HCM') return 'HCM';
+  if (/^FS(\d+)$/i.test(block)) return block.replace(/^FS(\d+)$/i, 'ĐH $1');
+  return block;
 }
 
 export default function Dashboard1Page() {
-  const [date, setDate] = useState('');
+  const [mode, setMode] = useState('d');
+  const [sel, setSel] = useState(0);
+  const [scope, setScope] = useState('all');
+  const [thr, setThr] = useState(3);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters for Section 4 (Kitchen table)
-  const [fsFilter, setFsFilter] = useState('ALL');
-  const [kitchenSearch, setKitchenSearch] = useState('');
-
-  const loadReport = useCallback(async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/dashboard/exec-report?date=${encodeURIComponent(date)}`);
+      const params = new URLSearchParams({
+        mode,
+        sel: String(sel),
+        scope,
+        thr: String(thr),
+      });
+      const res = await apiFetch(`/api/dashboard/alert-overview?${params.toString()}`);
       setData(res);
-      if (!date && res.date) setDate(res.date);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [mode, sel, scope, thr]);
 
   useEffect(() => {
-    loadReport();
-  }, [loadReport]);
+    loadData();
+  }, [loadData]);
 
-  const effectiveDate = date || data?.date || getYesterdayISO();
-  const dtObj = new Date(`${effectiveDate}T00:00:00`);
-  const dayNum = dtObj.getDate();
-  const monthNum = dtObj.getMonth() + 1;
-  const dowVn = DOW_VN[dtObj.getDay()] || '';
-  const ddmmVn = `${String(dayNum).padStart(2, '0')}/${String(monthNum).padStart(2, '0')}`;
-
-  const cs = data?.companySummary;
-  const allBlockRows = data ? [data.totalRow, ...(data.blockRows || [])] : [];
-
-  const filteredKitchens = (data?.kitchenRows || []).filter((k) => {
-    if (fsFilter !== 'ALL' && k.operating_block !== fsFilter) return false;
-    if (kitchenSearch.trim()) {
-      const q = kitchenSearch.trim().toLowerCase();
-      return (
-        k.code_number.toLowerCase().includes(q) ||
-        k.location_name.toLowerCase().includes(q) ||
-        k.operating_block.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
-
-  const chartDataVn = (data?.weeklyChartData || []).map((pt) => ({
-    ...pt,
-    weekVn: WEEK_LABELS_VN[pt.week] || pt.week,
-  }));
-
-  const handleExportExcel = async () => {
-    try {
-      await downloadFile(
-        `/api/reports/excel?date=${encodeURIComponent(effectiveDate)}&block=ALL`,
-        `BaoCao_SuatAn_${effectiveDate}.xlsx`
-      );
-    } catch (err) {
-      setError(err.message);
-    }
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    setSel(0);
   };
 
+  const lab = { d: 'ngày', w: 'tuần', m: 'tháng' }[mode];
+  const pv = mode === 'd' ? 'cùng thứ tuần trước' : `${lab} trước`;
+
+  const currentPeriodLabel =
+    data?.periodOptions?.find((o) => o.value === data.sel)?.label || '';
+  const currentScopeLabel =
+    data?.scopes?.find((s) => s.key === scope)?.label || 'Cả công ty';
+
+  const mk = data?.mealKpi;
+  const rk = data?.revenueKpi;
+
   return (
-    <div className="space-y-6">
-      {/* Executive Hero Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 rounded-2xl p-6 text-white shadow-lg border border-slate-800">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-[11px] font-semibold uppercase tracking-wider mb-2">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Báo cáo Điều hành Suất ăn (D-1)</span>
-            </div>
-            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">
-              TÌNH HÌNH SUẤT ĂN NGÀY {dayNum} THÁNG {monthNum} ({dowVn})
-            </h1>
-            <p className="text-xs text-slate-300 mt-1">
-              Tổng hợp toàn công ty, khối điều hành, xu hướng trung bình tuần và chi tiết từng bếp
-            </p>
+    <div className="space-y-3 text-[#1d2733]">
+      {/* Header */}
+      <div className="flex flex-wrap gap-2 justify-between items-center">
+        <div>
+          <h1 className="text-xl font-bold text-[#1d2733] m-0">Dashboard cảnh báo suất ăn</h1>
+          <div className="text-xs text-[#6b7785] mt-0.5">
+            {data
+              ? `Số liệu đến ${fmtDateVN(data.asOfDate)} · đang xem: ${currentPeriodLabel} · kỳ so sánh: ${pv}`
+              : 'Đang tải dữ liệu đồng bộ từ Google Sheet...'}
           </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 py-1.5">
-              <span className="text-xs text-slate-300 font-medium">Ngày báo cáo:</span>
-              <input
-                type="date"
-                value={effectiveDate}
-                onChange={(e) => setDate(e.target.value)}
-                className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:invert"
-              />
-            </div>
-
-            <button
-              onClick={loadReport}
-              className="p-2.5 bg-white/10 hover:bg-white/20 border border-white/15 rounded-xl text-white transition cursor-pointer"
-              title="Làm mới dữ liệu"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm transition cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Xuất Báo cáo Excel</span>
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#6b7785]">
+            Dữ liệu thực tế đồng bộ từ Google Sheet (Năm nay / Kế hoạch / Năm ngoái)
+          </span>
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#e3e8ee] bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Làm mới
+          </button>
         </div>
       </div>
 
+      {/* Controls Bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {/* Mode segmented */}
+        <div className="flex bg-white border border-[#e3e8ee] rounded-lg overflow-hidden">
+          {MODES.map(([mKey, mLabel]) => (
+            <button
+              key={mKey}
+              onClick={() => handleModeChange(mKey)}
+              className={`px-3 py-1.5 text-sm cursor-pointer transition ${
+                mode === mKey
+                  ? 'bg-[#2563eb] text-white font-medium'
+                  : 'bg-white text-[#1d2733] hover:bg-slate-50'
+              }`}
+            >
+              {mLabel}
+            </button>
+          ))}
+        </div>
+
+        {/* Period select */}
+        <select
+          value={sel}
+          onChange={(e) => setSel(Number(e.target.value))}
+          aria-label="Chọn kỳ xem"
+          className="text-sm px-2.5 py-1.5 border border-[#e3e8ee] rounded-lg bg-white text-[#1d2733]"
+        >
+          {(data?.periodOptions || []).map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+
+        {/* Scope chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {(data?.scopes || []).map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setScope(s.key)}
+              className={`px-3 py-1 rounded-full text-[13px] border cursor-pointer transition ${
+                scope === s.key
+                  ? 'bg-[#2563eb] text-white border-[#2563eb] font-medium'
+                  : 'bg-white text-[#1d2733] border-[#e3e8ee] hover:bg-slate-50'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Threshold input */}
+        <label className="text-xs text-[#6b7785] flex items-center gap-1.5 ml-auto">
+          Ngưỡng giảm ≥
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={thr}
+            onChange={(e) => setThr(Math.max(1, Math.min(50, Number(e.target.value) || 3)))}
+            className="w-14 px-2 py-1 text-sm border border-[#e3e8ee] rounded-md bg-white text-[#1d2733] text-center"
+          />
+          %
+        </label>
+      </div>
+
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl">{error}</div>
+        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+          {error}
+        </div>
       )}
 
-      {/* SECTION 1: TÌNH HÌNH SUẤT ĂN TOÀN CÔNG TY (4 Hero KPI Cards) */}
-      {cs && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700">
-              <Building2 className="w-4 h-4" />
+      {data && mk && rk && (
+        <>
+          {/* KPI Row 1: Suất ăn */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Thực tế ({lab} đang xem)</div>
+              <div className="text-2xl font-bold my-0.5">{nf(mk.actual)}</div>
+              <div className={`text-xs font-medium ${mk.deltaPrevPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+                {pc(mk.deltaPrevPct)} so với {pv}
+              </div>
             </div>
-            <h2 className="text-sm md:text-base font-bold text-slate-800 uppercase tracking-wide">
-              1. Tình hình Suất ăn Toàn Công ty
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Kế hoạch</div>
+              <div className="text-2xl font-bold my-0.5">{nf(mk.plan)}</div>
+              <div className="text-xs text-[#6b7785]">Chênh lệch {nf(mk.diff)}</div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">% đạt kế hoạch</div>
+              <div className="text-2xl font-bold my-0.5">{fmtPct(mk.attPct)}</div>
+              <div
+                className={`text-xs font-medium ${
+                  mk.attPct >= 100 ? 'text-[#16a34a]' : mk.attPct >= 97 ? 'text-[#6b7785]' : 'text-[#dc2626]'
+                }`}
+              >
+                {mk.attPct >= 100 ? 'Đạt' : 'Chưa đạt'}
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Địa điểm cảnh báo</div>
+              <div className="text-2xl font-bold my-0.5">
+                {mk.alertCount} / {data.openCount}
+              </div>
+              <div className="text-xs text-[#6b7785]">giảm ≥ {thr}% (không tính bếp đóng)</div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">So cùng kỳ năm trước (YoY)</div>
+              <div
+                className={`text-2xl font-bold my-0.5 ${
+                  mk.yoyPct === null ? 'text-slate-400' : mk.yoyPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                }`}
+              >
+                {pc(mk.yoyPct)}
+              </div>
+              <div className="text-xs text-[#6b7785]">Năm trước: {nf(mk.lyActual)}</div>
+            </div>
+          </div>
+
+          {/* KPI Row 2: Doanh thu */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Doanh thu thực tế (triệu đồng)</div>
+              <div className="text-2xl font-bold my-0.5">{nf(rk.actual)}</div>
+              <div className={`text-xs font-medium ${rk.deltaPrevPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+                {pc(rk.deltaPrevPct)} so với {pv}
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Doanh thu kế hoạch</div>
+              <div className="text-2xl font-bold my-0.5">{nf(rk.plan)}</div>
+              <div className="text-xs text-[#6b7785]">Chênh lệch {nf(rk.diff)}</div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">% đạt KH doanh thu</div>
+              <div className="text-2xl font-bold my-0.5">{fmtPct(rk.attPct)}</div>
+              <div
+                className={`text-xs font-medium ${
+                  rk.attPct >= 100 ? 'text-[#16a34a]' : rk.attPct >= 97 ? 'text-[#6b7785]' : 'text-[#dc2626]'
+                }`}
+              >
+                {rk.attPct >= 100 ? 'Đạt' : 'Chưa đạt'}
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">Địa điểm cảnh báo (doanh thu)</div>
+              <div className="text-2xl font-bold my-0.5">
+                {rk.alertCount} / {data.openCount}
+              </div>
+              <div className="text-xs text-[#6b7785]">giảm ≥ {thr}% (không tính bếp đóng)</div>
+            </div>
+
+            <div className="bg-white border border-[#e3e8ee] rounded-xl p-3.5">
+              <div className="text-xs text-[#6b7785]">So cùng kỳ năm trước (YoY)</div>
+              <div
+                className={`text-2xl font-bold my-0.5 ${
+                  rk.yoyPct === null ? 'text-slate-400' : rk.yoyPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                }`}
+              >
+                {pc(rk.yoyPct)}
+              </div>
+              <div className="text-xs text-[#6b7785]">Năm trước: {nf(rk.lyActual)}</div>
+            </div>
+          </div>
+
+          {/* Chart 1: Xu hướng suất ăn vs kế hoạch */}
+          <div className="bg-white border border-[#e3e8ee] rounded-xl p-4">
+            <h2 className="text-sm font-bold mb-2">
+              Xu hướng suất ăn vs kế hoạch · {currentScopeLabel} · theo {lab}
             </h2>
+            <div className="flex gap-4 text-xs text-[#6b7785] mb-1">
+              <span className="flex items-center gap-1.5">
+                <i className="inline-block w-3.5 h-[3px] bg-[#2563eb]" />
+                Thực tế
+              </span>
+              <span className="flex items-center gap-1.5">
+                <i className="inline-block w-3.5 h-[3px] bg-[#9aa6b5]" />
+                Kế hoạch
+              </span>
+            </div>
+            <TrendLineSVG series={data.trendSeries} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Card 1: Tổng suất ăn */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:shadow-md transition relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tổng Suất Ăn</span>
-                <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
-                  <Utensils className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-slate-400 w-14">Ngày:</span>
-                <span className="text-2xl font-extrabold text-slate-900">
-                  {Math.round(cs.dayActualMeals / 1000).toLocaleString('en-US')}
+          {/* Section 2: Xu hướng theo nhóm ngành nghề */}
+          <div className="bg-white border border-[#e3e8ee] rounded-xl p-4">
+            <h2 className="text-sm font-bold mb-2">
+              Xu hướng theo nhóm ngành nghề · {currentScopeLabel} · theo {lab}
+            </h2>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#6b7785] mb-2">
+              {(data.industryRows || []).map((r) => (
+                <span key={r.industry} className="flex items-center gap-1.5">
+                  <i className="inline-block w-3.5 h-[3px]" style={{ background: r.color }} />
+                  {r.industry}
                 </span>
-                <span className="text-xs font-semibold text-blue-600">nghìn suất</span>
-              </div>
-              <div className="mt-2 pt-2.5 border-t border-slate-100 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-slate-400 w-14">Lũy kế:</span>
-                <span className="text-lg font-bold text-slate-800">
-                  {Math.round(cs.mtdActualMeals / 1000).toLocaleString('en-US')}
-                </span>
-                <span className="text-xs text-slate-500">nghìn suất</span>
-              </div>
+              ))}
             </div>
-
-            {/* Card 2: Doanh thu */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:shadow-md transition relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tổng Doanh Thu</span>
-                <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
-                  <DollarSign className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-slate-400 w-14">Ngày:</span>
-                <span className="text-2xl font-extrabold text-slate-900">{fmtBillionVND(cs.dayActualRevenue)}</span>
-                <span className="text-xs font-semibold text-amber-600">tỷ đồng</span>
-              </div>
-              <div className="mt-2 pt-2.5 border-t border-slate-100 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-slate-400 w-14">Lũy kế:</span>
-                <span className="text-lg font-bold text-slate-800">{fmtBillionVND(cs.mtdActualRevenue)}</span>
-                <span className="text-xs text-slate-500">tỷ đồng</span>
-              </div>
-            </div>
-
-            {/* Card 3: Tỉ lệ hoàn thành */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:shadow-md transition">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tỉ Lệ Hoàn Thành KH</span>
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-                  <Target className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 flex items-baseline justify-between">
-                <span className={`text-3xl font-extrabold ${cs.completionRatePct >= 97 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                  {cs.completionRatePct}%
-                </span>
-                <span className="text-xs text-slate-400">Lũy kế / Mục tiêu</span>
-              </div>
-              <div className="mt-3 w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    cs.completionRatePct >= 97 ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'
-                  }`}
-                  style={{ width: `${Math.min(100, Math.max(0, cs.completionRatePct))}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Card 4: Tỉ lệ tăng trưởng */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:shadow-md transition">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Tỉ Lệ Tăng Trưởng</span>
-                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
-                  <TrendingUp className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 flex items-baseline justify-between">
-                <span className={`text-3xl font-extrabold ${cs.growthRatePct >= 100 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                  {cs.growthRatePct}%
-                </span>
-                <span className="text-xs text-slate-400">So với Năm ngoái</span>
-              </div>
-              <div className="mt-3 w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 transition-all duration-500"
-                  style={{ width: `${Math.min(100, Math.max(0, cs.growthRatePct))}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 2: TÌNH HÌNH SUẤT ĂN THEO ĐIỀU HÀNH */}
-      {data && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50/70">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
-                <Layers className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm md:text-base font-bold text-slate-800 uppercase tracking-wide">
-                2. Tình hình Suất ăn theo Khối Điều hành
-              </h2>
-            </div>
-            <span className="px-2.5 py-1 rounded-full bg-slate-200/80 text-slate-700 text-xs font-semibold">
-              Đơn vị: nghìn suất
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr>
-                  <th
-                    rowSpan={2}
-                    className="border-b border-r border-slate-200 px-3 py-3 text-center font-bold text-slate-800 bg-slate-100 w-36"
-                  >
-                    ĐIỀU HÀNH
-                  </th>
-                  <th
-                    colSpan={5}
-                    className="border-b border-r border-slate-200 px-3 py-2 text-center font-bold text-blue-900 bg-blue-50/90"
-                  >
-                    NGÀY ({dowVn} — {ddmmVn})
-                  </th>
-                  <th
-                    colSpan={6}
-                    className="border-b border-slate-200 px-3 py-2 text-center font-bold text-teal-900 bg-teal-50/90"
-                  >
-                    LŨY KẾ THÁNG (01/{String(monthNum).padStart(2, '0')} ~ {ddmmVn})
-                  </th>
-                </tr>
-                <tr className="bg-slate-50 text-slate-600 font-bold text-[11px] uppercase tracking-wider">
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Thực tế</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Mục tiêu</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right bg-slate-100/80">So với MT</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Năm ngoái</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right bg-slate-100/80">So với NN</th>
-
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Thực tế</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Mục tiêu</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right bg-slate-100/80">So với MT</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right">Năm ngoái</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2 text-right bg-slate-100/80">So với NN</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-center w-28">% Hoàn thành</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {allBlockRows.map((r, idx) => {
-                  const isTotal = r.operating_block === 'TỔNG';
-                  const mtdPct = r.mtdPlan > 0 ? Math.round((r.mtdActual / r.mtdPlan) * 100) : 0;
-                  const isSelected = fsFilter === r.operating_block;
-
-                  return (
-                    <tr
-                      key={r.operating_block}
-                      onClick={() => setFsFilter(isTotal ? 'ALL' : isSelected ? 'ALL' : r.operating_block)}
-                      title="Nhấn để lọc danh sách bếp bên dưới theo khối này"
-                      className={`transition cursor-pointer ${
-                        isTotal
-                          ? 'bg-slate-800 text-white font-bold'
-                          : isSelected
-                          ? 'bg-blue-50/90 font-semibold'
-                          : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <td className="border-r border-slate-200/70 px-3 py-2.5 text-center font-bold">
-                        <div className="inline-flex items-center gap-2">
-                          {!isTotal && (
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: LINE_COLORS[(idx - 1) % LINE_COLORS.length] }}
-                            />
-                          )}
-                          <span>{displayBlockLabel(r.operating_block)}</span>
-                        </div>
-                      </td>
-
-                      {/* Daily */}
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right font-bold">
-                        {fmtThousand(r.dayActual)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right opacity-85">
-                        {fmtThousand(r.dayPlan)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right bg-slate-50/40">
-                        <VariancePill diff={r.dayDiffPlan} unitDivisor={1000} decimals={1} />
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right opacity-85">
-                        {fmtThousand(r.dayLy)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right bg-slate-50/40">
-                        <VariancePill diff={r.dayDiffLy} unitDivisor={1000} decimals={1} />
-                      </td>
-
-                      {/* MTD */}
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right font-bold">
-                        {fmtThousand(r.mtdActual)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right opacity-85">
-                        {fmtThousand(r.mtdPlan)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right bg-slate-50/40">
-                        <VariancePill diff={r.mtdDiffPlan} unitDivisor={1000} decimals={1} />
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right opacity-85">
-                        {fmtThousand(r.mtdLy)}
-                      </td>
-                      <td className="border-r border-slate-200/60 px-2.5 py-2.5 text-right bg-slate-50/40">
-                        <VariancePill diff={r.mtdDiffLy} unitDivisor={1000} decimals={1} />
-                      </td>
-
-                      {/* Mini progress */}
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-slate-200/80 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                mtdPct >= 97 ? 'bg-emerald-500' : mtdPct >= 90 ? 'bg-amber-500' : 'bg-rose-500'
-                              }`}
-                              style={{ width: `${Math.min(100, Math.max(0, mtdPct))}%` }}
-                            />
-                          </div>
-                          <span className="text-[11px] font-bold w-9 text-right">{mtdPct}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 3: TÌNH HÌNH SUẤT ĂN TRUNG BÌNH THEO TUẦN */}
-      {data && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          {/* Left table (7 cols) */}
-          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-teal-100 text-teal-700">
-                  <BarChart3 className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                  3. Suất ăn Trung bình theo Tuần
-                </h2>
-              </div>
-              <span className="text-xs text-slate-500 font-medium">Đơn vị: nghìn suất</span>
-            </div>
-
-            <div className="overflow-x-auto flex-1">
-              <table className="w-full text-xs border-collapse">
+            <MultiLineSVG buckets={data.buckets} rows={data.industryRows} />
+            <div className="overflow-x-auto mt-3">
+              <table className="w-full min-w-[600px] border-collapse text-sm">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-700 font-bold">
-                    <th rowSpan={2} className="border-b border-r border-slate-200 px-3 py-2.5 text-center w-36">
-                      ĐIỀU HÀNH
-                    </th>
-                    {(data.weekDefs || []).map((w) => (
-                      <th key={w.key} className="border-b border-r border-slate-200 px-3 py-1.5 text-center">
-                        <div className="text-slate-900 font-bold">{WEEK_LABELS_VN[w.label] || w.label}</div>
-                        <div className="text-[10px] font-normal text-slate-500">{w.rangeLabel}</div>
-                      </th>
-                    ))}
+                  <tr className="border-b border-[#e3e8ee] text-xs text-[#6b7785]">
+                    <th className="py-2 px-2 text-left font-semibold">Ngành nghề</th>
+                    <th className="py-2 px-2 text-right font-semibold">Xu hướng</th>
+                    <th className="py-2 px-2 text-right font-semibold">Thực tế</th>
+                    <th className="py-2 px-2 text-right font-semibold">Kế hoạch</th>
+                    <th className="py-2 px-2 text-right font-semibold">% đạt KH</th>
+                    <th className="py-2 px-2 text-right font-semibold">Δ vs kỳ trước</th>
+                    <th className="py-2 px-2 text-right font-semibold">Trạng thái</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(data.weeklyTable || []).map((row, idx) => (
-                    <tr key={row.operating_block} className="hover:bg-slate-50">
-                      <td className="border-r border-slate-200 px-3 py-2.5 font-semibold text-slate-800">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: LINE_COLORS[idx % LINE_COLORS.length] }}
-                          />
-                          <span>{displayBlockLabel(row.operating_block)}</span>
-                        </div>
+                <tbody>
+                  {(data.industryRows || []).map((r) => (
+                    <tr key={r.industry} className="border-b border-[#e3e8ee] hover:bg-slate-50/70">
+                      <td className="py-2 px-2 text-left font-medium">{r.industry}</td>
+                      <td className="py-2 px-2 text-right">
+                        <Sparkline series={r.series} />
                       </td>
-                      {['w1', 'w2', 'w3', 'w4'].map((wk) => (
-                        <td key={wk} className="border-r border-slate-200 px-3 py-2.5 text-right font-semibold text-slate-800">
-                          {row[wk] !== null ? (
-                            fmtThousand(row[wk])
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </td>
-                      ))}
+                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
+                      <td
+                        className={`py-2 px-2 text-right tabular-nums font-medium ${
+                          r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                        }`}
+                      >
+                        {pc(r.deltaPct)}
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <StatusBadge v={r.deltaPct} thr={thr} />
+                      </td>
                     </tr>
                   ))}
-                  <tr className="bg-slate-800 text-white font-bold">
-                    <td className="border-r border-slate-700 px-3 py-2.5 text-center">TỔNG (Suất)</td>
-                    {['w1', 'w2', 'w3', 'w4'].map((wk) => (
-                      <td key={wk} className="border-r border-slate-700 px-3 py-2.5 text-right">
-                        {data.weeklyTotals?.[wk] !== null && data.weeklyTotals?.[wk] !== undefined
-                          ? data.weeklyTotals[wk].toLocaleString('en-US')
-                          : '-'}
-                      </td>
-                    ))}
-                  </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Right chart (5 cols) */}
-          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 flex flex-col">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                Biểu đồ Xu hướng Trung bình Tuần
-              </h3>
-              <span className="text-xs text-slate-400">nghìn suất / ngày</span>
-            </div>
-            <div className="flex-1 min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartDataVn}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="weekVn" tick={{ fontSize: 11, fontWeight: 600 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ borderRadius: '12px', borderColor: '#cbd5e1', fontSize: '12px' }}
-                    formatter={(val, name) => [
-                      val !== null ? `${val} nghìn suất` : '-',
-                      displayBlockLabel(name),
-                    ]}
-                  />
-                  <Legend
-                    formatter={(v) => displayBlockLabel(v)}
-                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                  />
-                  {(data.blockRows || []).map((b, idx) => (
-                    <Line
-                      key={b.operating_block}
-                      type="monotone"
-                      dataKey={b.operating_block}
-                      stroke={LINE_COLORS[idx % LINE_COLORS.length]}
-                      strokeWidth={2.5}
-                      dot={{ r: 4, strokeWidth: 2 }}
-                      activeDot={{ r: 6 }}
-                      connectNulls={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 4: TÌNH HÌNH SUẤT ĂN THEO TỪNG BẾP */}
-      {data && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700">
-                <Utensils className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm md:text-base font-bold text-slate-800 uppercase tracking-wide">
-                4. Tình hình Suất ăn theo từng Bếp ({filteredKitchens.length} bếp)
-              </h2>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Quick block filter pills */}
-              <div className="flex flex-wrap items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setFsFilter('ALL')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                    fsFilter === 'ALL'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Tất cả ({data.kitchenRows?.length || 0})
-                </button>
-                {(data.blocks || []).map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setFsFilter(b)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                      fsFilter === b
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    {displayBlockLabel(b)}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2" />
-                <input
-                  type="text"
-                  value={kitchenSearch}
-                  onChange={(e) => setKitchenSearch(e.target.value)}
-                  placeholder="Tìm mã hoặc tên bếp..."
-                  className="pl-8 pr-3 py-1 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto max-h-[540px] overflow-y-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-slate-800 font-bold shadow-2xs">
-                <tr>
-                  <th className="border-b border-r border-slate-200 px-3 py-2.5 text-left">Khối/Ban</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-2.5 text-left">Mã bếp</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-2.5 text-left">Tên bếp</th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-blue-50/60">
-                    Thực tế ({ddmmVn})
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-blue-50/60">
-                    Mục tiêu ({ddmmVn})
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-blue-100/50">
-                    So với MT
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-blue-50/60">
-                    Năm ngoái ({ddmmVn})
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-blue-100/50">
-                    So với NN
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-teal-50/60">
-                    Thực tế (Lũy kế)
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-teal-50/60">
-                    Mục tiêu (Lũy kế)
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-teal-100/50">
-                    So với MT
-                  </th>
-                  <th className="border-b border-r border-slate-200 px-2.5 py-2.5 text-right bg-teal-50/60">
-                    Năm ngoái (Lũy kế)
-                  </th>
-                  <th className="border-b border-slate-200 px-2.5 py-2.5 text-right bg-teal-100/50">
-                    So với NN
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {filteredKitchens.map((k) => (
-                  <tr key={k.code_number} className="hover:bg-blue-50/40 transition">
-                    <td className="border-r border-slate-200/60 px-3 py-2 font-semibold text-slate-700">
-                      {displayBlockLabel(k.operating_block)}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-3 py-2 font-mono font-semibold text-slate-700">
-                      {k.code_number}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-3 py-2 font-medium text-slate-900">
-                      {k.location_name}
-                    </td>
-
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right font-bold text-slate-900">
-                      {k.dayActual.toLocaleString('en-US')}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right text-slate-600">
-                      {k.dayPlan.toLocaleString('en-US')}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right">
-                      <VariancePill diff={k.dayDiffPlan} unitDivisor={1} decimals={0} />
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right text-slate-600">
-                      {k.dayLy.toLocaleString('en-US')}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right">
-                      <VariancePill diff={k.dayDiffLy} unitDivisor={1} decimals={0} />
-                    </td>
-
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right font-bold text-slate-900">
-                      {k.mtdActual.toLocaleString('en-US')}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right text-slate-600">
-                      {k.mtdPlan.toLocaleString('en-US')}
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right">
-                      <VariancePill diff={k.mtdDiffPlan} unitDivisor={1} decimals={0} />
-                    </td>
-                    <td className="border-r border-slate-200/60 px-2.5 py-2 text-right text-slate-600">
-                      {k.mtdLy.toLocaleString('en-US')}
-                    </td>
-                    <td className="px-2.5 py-2 text-right">
-                      <VariancePill diff={k.mtdDiffLy} unitDivisor={1} decimals={0} />
-                    </td>
+          {/* Section 3: So sánh theo nhóm / điều hành */}
+          <div className="bg-white border border-[#e3e8ee] rounded-xl p-4">
+            <h2 className="text-sm font-bold mb-2">So sánh theo nhóm / điều hành (kỳ gần nhất)</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-[#e3e8ee] text-xs text-[#6b7785]">
+                    <th className="py-2 px-2 text-left font-semibold">Nhóm / điều hành</th>
+                    <th className="py-2 px-2 text-right font-semibold">Xu hướng</th>
+                    <th className="py-2 px-2 text-right font-semibold">Thực tế</th>
+                    <th className="py-2 px-2 text-right font-semibold">Kế hoạch</th>
+                    <th className="py-2 px-2 text-right font-semibold">% đạt KH</th>
+                    <th className="py-2 px-2 text-right font-semibold">Δ vs kỳ trước</th>
+                    <th className="py-2 px-2 text-right font-semibold">Trạng thái</th>
+                    <th className="py-2 px-2 text-right font-semibold">YoY</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(data.segmentRows || []).map((r) => (
+                    <tr
+                      key={r.key}
+                      onClick={() => setScope(r.key)}
+                      className={`border-b border-[#e3e8ee] cursor-pointer transition ${
+                        scope === r.key ? 'bg-blue-50/70' : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <td className="py-2 px-2 text-left font-medium">{r.label}</td>
+                      <td className="py-2 px-2 text-right">
+                        <Sparkline series={r.series} />
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.actual)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{nf(r.plan)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{fmtPct(r.attPct)}</td>
+                      <td
+                        className={`py-2 px-2 text-right tabular-nums font-medium ${
+                          r.deltaPct >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'
+                        }`}
+                      >
+                        {pc(r.deltaPct)}
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <StatusBadge v={r.deltaPct} thr={thr} />
+                      </td>
+                      <td
+                        className={`py-2 px-2 text-right tabular-nums font-medium ${
+                          r.yoyPct === null
+                            ? 'text-slate-400'
+                            : r.yoyPct >= 0
+                            ? 'text-[#16a34a]'
+                            : 'text-[#dc2626]'
+                        }`}
+                      >
+                        {pc(r.yoyPct)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {/* Section 4: Cảnh báo địa điểm giảm */}
+          <div className="bg-white border border-[#e3e8ee] rounded-xl p-4">
+            <h2 className="text-sm font-bold mb-1">
+              Cảnh báo địa điểm giảm ≥ {thr}% so với {pv}
+            </h2>
+            <div className="text-xs text-[#6b7785] mb-2">
+              {data.closedLocations && data.closedLocations.length > 0
+                ? `Đã loại trừ ${data.closedLocations.length} địa điểm đóng bếp: ${data.closedLocations
+                    .map((l) => l.location_name)
+                    .join(', ')}`
+                : 'Không có địa điểm đóng bếp trong phạm vi này'}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-[#e3e8ee] text-xs text-[#6b7785]">
+                    <th className="py-2 px-2 text-left font-semibold">Địa điểm</th>
+                    <th className="py-2 px-2 text-right font-semibold">Nhóm / ĐH</th>
+                    <th className="py-2 px-2 text-right font-semibold">Kỳ này</th>
+                    <th className="py-2 px-2 text-right font-semibold">Kỳ trước</th>
+                    <th className="py-2 px-2 text-right font-semibold">Δ%</th>
+                    <th className="py-2 px-2 text-right font-semibold">% đạt KH</th>
+                    <th className="py-2 px-2 text-right font-semibold">Mức độ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.alertRows && data.alertRows.length > 0 ? (
+                    data.alertRows.map((x) => (
+                      <tr key={x.code_number} className="border-b border-[#e3e8ee] hover:bg-red-50/30">
+                        <td className="py-2 px-2 text-left font-medium">
+                          <span>{x.location_name}</span>
+                          <span className="ml-1.5 text-[11px] text-slate-400 font-normal">
+                            ({x.code_number})
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-right text-slate-600">
+                          {x.group_ab ? `${x.group_ab} · ` : ''}
+                          {formatBlockShort(x.operating_block)}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(x.curActual)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums">{nf(x.prevActual)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums font-semibold text-[#dc2626]">
+                          {pc(x.deltaPct)}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums">{fmtPct(x.attPct)}</td>
+                        <td className="py-2 px-2 text-right">
+                          <StatusBadge v={x.deltaPct} thr={thr} />
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-4 px-2 text-left text-slate-500">
+                        Không có địa điểm nào giảm vượt ngưỡng.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

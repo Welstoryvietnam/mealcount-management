@@ -131,6 +131,8 @@ function computePeriod(locations, start, end, { thresholdPct = DEFAULT_THRESHOLD
       code_number: loc.code_number,
       location_name: loc.location_name,
       operating_block: loc.operating_block,
+      group_ab: loc.group_ab || '',
+      industry: loc.industry || '',
       am_name: loc.am_name || '',
       unit_price: loc.unit_price,
       profit_margin_pct: loc.profit_margin_pct,
