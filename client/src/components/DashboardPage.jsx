@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, RefreshCw } from 'lucide-react';
+import { Calendar, RefreshCw, ChevronDown, ChevronRight, Columns2, Utensils, DollarSign } from 'lucide-react';
 import { apiFetch } from '../api';
 
 const DOW_EN_VN = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
@@ -32,7 +32,7 @@ function DiffCell({ raw, divisor, decimals, bold = false, extraClass = '' }) {
   if (isNeg) {
     return (
       <td
-        className={`px-1 py-1 text-right tabular-nums text-[#dc2626] whitespace-nowrap ${
+        className={`px-2 py-1.5 text-right tabular-nums text-[#dc2626] whitespace-nowrap ${
           bold ? 'font-bold' : 'font-semibold'
         } ${extraClass}`}
       >
@@ -44,7 +44,7 @@ function DiffCell({ raw, divisor, decimals, bold = false, extraClass = '' }) {
   const display = Math.abs(val) < Math.abs(negThreshold) ? zeroStr : absStr;
   return (
     <td
-      className={`px-1 py-1 text-right tabular-nums text-slate-800 whitespace-nowrap ${
+      className={`px-2 py-1.5 text-right tabular-nums text-slate-800 whitespace-nowrap ${
         bold ? 'font-bold' : ''
       } ${extraClass}`}
     >
@@ -53,161 +53,15 @@ function DiffCell({ raw, divisor, decimals, bold = false, extraClass = '' }) {
   );
 }
 
-function SectionTable({
-  sectionTitle,
-  totalRow,
-  rows,
-  dateInfo,
-  divisor,
-  decimals,
-  alignLeftRows = false,
-}) {
-  const { dNum, mNum, dowLabel, sameDowShortDate } = dateInfo;
-  const shortDate = `${dNum}/${mNum}`;
-
-  const renderRow = (r, isTotal = false) => (
-    <tr
-      key={`${sectionTitle}-${r.label}`}
-      className={
-        isTotal
-          ? 'bg-[#e9edf5] font-bold border-y border-slate-300'
-          : 'border-b border-slate-200/80 hover:bg-amber-50/40'
-      }
-    >
-      <td
-        className={`px-1.5 py-1 whitespace-nowrap text-slate-800 ${
-          isTotal
-            ? 'text-center font-bold'
-            : alignLeftRows
-            ? 'text-left text-[11px] bg-[#f4f7f2]'
-            : 'text-center font-medium bg-[#f4f7f2]'
-        }`}
-      >
-        {r.label}
-      </td>
-      {/* Hôm nay */}
-      <td className="px-1 py-1 text-right tabular-nums text-slate-900 whitespace-nowrap">
-        {fmtNumber(r.dayActual, divisor, decimals)}
-      </td>
-      <td className="px-1 py-1 text-right tabular-nums text-slate-700 whitespace-nowrap">
-        {fmtNumber(r.dayPlan, divisor, decimals)}
-      </td>
-      <DiffCell raw={r.dayDiffPlan} divisor={divisor} decimals={decimals} bold={isTotal} />
-      <td className="px-1 py-1 text-right tabular-nums text-slate-700 whitespace-nowrap">
-        {fmtNumber(r.dayLy, divisor, decimals)}
-      </td>
-      <DiffCell raw={r.dayDiffLy} divisor={divisor} decimals={decimals} bold={isTotal} />
-      {/* Cùng thứ năm trước */}
-      <td className="px-1 py-1 text-right tabular-nums text-slate-800 whitespace-nowrap bg-[#eff6ff]/70 border-l border-sky-200">
-        {fmtNumber(r.dayLySameDow, divisor, decimals)}
-      </td>
-      <DiffCell
-        raw={r.dayDiffLySameDow}
-        divisor={divisor}
-        decimals={decimals}
-        bold={isTotal}
-        extraClass="bg-[#eff6ff]/70"
-      />
-      {/* Lũy kế tháng */}
-      <td className="px-1 py-1 text-right tabular-nums text-slate-900 whitespace-nowrap bg-[#f7f5ff]/70 border-l border-purple-200">
-        {fmtNumber(r.mtdActual, divisor, decimals)}
-      </td>
-      <td className="px-1 py-1 text-right tabular-nums text-slate-700 whitespace-nowrap bg-[#f7f5ff]/70">
-        {fmtNumber(r.mtdPlan, divisor, decimals)}
-      </td>
-      <DiffCell raw={r.mtdDiffPlan} divisor={divisor} decimals={decimals} bold={isTotal} />
-      <td className="px-1 py-1 text-right tabular-nums text-slate-700 whitespace-nowrap bg-[#f7f5ff]/70">
-        {fmtNumber(r.mtdLy, divisor, decimals)}
-      </td>
-      <DiffCell raw={r.mtdDiffLy} divisor={divisor} decimals={decimals} bold={isTotal} />
-    </tr>
-  );
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[11px] leading-tight">
-        <thead>
-          <tr>
-            <th
-              rowSpan={2}
-              className="px-2 py-1.5 text-center font-bold text-slate-800 bg-[#edf2ec] border border-slate-300/80 text-xs min-w-[104px]"
-            >
-              {sectionTitle}
-            </th>
-            <th
-              colSpan={7}
-              className="px-1.5 py-1 text-center font-bold text-slate-900 bg-[#f6c465] border border-amber-400/70 text-[11px]"
-            >
-              Hôm nay ({dowLabel})
-            </th>
-            <th
-              colSpan={5}
-              className="px-1.5 py-1 text-center font-bold text-slate-900 bg-[#b9a7f8] border border-purple-400/70 text-[11px]"
-            >
-              Lũy kế tháng (ngày 1 tháng {mNum} ~ ngày {dNum} tháng {mNum})
-            </th>
-          </tr>
-          <tr className="text-[10px] font-semibold text-slate-800">
-            <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
-              Năm nay ({shortDate})
-            </th>
-            <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
-              Kế hoạch ({shortDate})
-            </th>
-            <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
-              So với KH
-            </th>
-            <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
-              Năm ngoái ({shortDate})
-            </th>
-            <th className="px-1 py-1 text-center bg-[#f9d792] border border-amber-300/70 whitespace-nowrap">
-              So với NT
-            </th>
-            <th className="px-1 py-1 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
-              Cùng thứ NT ({sameDowShortDate || shortDate})
-            </th>
-            <th className="px-1 py-1 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
-              So cùng thứ
-            </th>
-            <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
-              Năm nay
-            </th>
-            <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
-              Kế hoạch
-            </th>
-            <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
-              So với KH
-            </th>
-            <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
-              Năm ngoái
-            </th>
-            <th className="px-1 py-1 text-center bg-[#d5c8fb] border border-purple-300/70 whitespace-nowrap">
-              So với NT
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {renderRow(totalRow, true)}
-          {rows.map((r) => renderRow(r, false))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function MealHeaderIllustration() {
   return (
-    <svg viewBox="0 0 88 72" className="w-16 h-14 shrink-0" aria-hidden="true">
-      {/* Orange accent circle */}
+    <svg viewBox="0 0 88 72" className="w-14 h-12 shrink-0" aria-hidden="true">
       <circle cx="58" cy="28" r="21" fill="#f96332" opacity="0.92" />
-      {/* Speech lines inside circle */}
       <rect x="46" y="18" width="18" height="4" rx="2" fill="#fff" opacity="0.9" />
       <rect x="46" y="25" width="24" height="4" rx="2" fill="#fff" opacity="0.75" />
       <rect x="46" y="32" width="14" height="4" rx="2" fill="#fff" opacity="0.6" />
-      {/* Lightbulb */}
       <circle cx="17" cy="20" r="8" fill="#fbbf24" stroke="#334155" strokeWidth="1.6" />
       <path d="M14 28h6M15 31h4" stroke="#334155" strokeWidth="1.6" strokeLinecap="round" />
-      {/* Minimal desk & person */}
       <circle cx="33" cy="36" r="6" fill="#fff" stroke="#334155" strokeWidth="1.8" />
       <path d="M22 60c0-8 5-13 11-13s11 5 11 13" fill="#cbd5e1" stroke="#334155" strokeWidth="1.8" />
       <line x1="8" y1="60" x2="78" y2="60" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
@@ -218,17 +72,13 @@ function MealHeaderIllustration() {
 
 function RevenueHeaderIllustration() {
   return (
-    <svg viewBox="0 0 88 72" className="w-16 h-14 shrink-0" aria-hidden="true">
-      {/* Orange accent circle */}
+    <svg viewBox="0 0 88 72" className="w-14 h-12 shrink-0" aria-hidden="true">
       <circle cx="58" cy="28" r="21" fill="#f96332" opacity="0.92" />
-      {/* Mini rising chart inside circle */}
       <rect x="47" y="32" width="5" height="10" rx="1.5" fill="#fff" opacity="0.75" />
       <rect x="55" y="26" width="5" height="16" rx="1.5" fill="#fff" opacity="0.88" />
       <rect x="63" y="19" width="5" height="23" rx="1.5" fill="#fff" />
-      {/* Coin / lightbulb */}
       <circle cx="17" cy="20" r="8" fill="#fbbf24" stroke="#334155" strokeWidth="1.6" />
       <text x="17" y="24" textAnchor="middle" fontSize="10" fontWeight="800" fill="#334155">₫</text>
-      {/* Minimal desk & person */}
       <circle cx="33" cy="36" r="6" fill="#fff" stroke="#334155" strokeWidth="1.8" />
       <path d="M22 60c0-8 5-13 11-13s11 5 11 13" fill="#cbd5e1" stroke="#334155" strokeWidth="1.8" />
       <line x1="8" y1="60" x2="78" y2="60" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
@@ -237,7 +87,7 @@ function RevenueHeaderIllustration() {
   );
 }
 
-function StatusPanel({
+function HeroSummaryCard({
   title,
   unitLabel,
   panelData,
@@ -245,9 +95,10 @@ function StatusPanel({
   divisor,
   decimals,
   kind = 'meal',
+  active = false,
+  onSelect,
 }) {
-  const { summary, totalRow, groupRows, blockRows, industryRows } = panelData;
-
+  const { summary, totalRow } = panelData;
   const dayDiffScaled = (Number(totalRow.dayDiffPlan) || 0) / divisor;
   const negThr = decimals > 0 ? -0.05 : -0.5;
   const posThr = Math.abs(negThr);
@@ -257,41 +108,45 @@ function StatusPanel({
   });
   const isDayNeg = dayDiffScaled < negThr;
   const isDayPos = dayDiffScaled > posThr;
-
   const compClamped = Math.max(0, Math.min(100, Number(summary.completionPct) || 0));
 
   return (
-    <div className="bg-[#eef5e9] border border-[#d6e5cc] rounded-2xl shadow-sm p-4 flex flex-col gap-3">
-      {/* Editorial Infographic Header (matches Image 2 + Vietnamese) */}
-      <div className="w-full max-w-[600px] mx-auto flex items-center gap-3 pt-0.5">
+    <div
+      onClick={onSelect}
+      className={`bg-[#eef5e9] rounded-2xl p-3.5 sm:p-4 flex flex-col gap-2.5 transition cursor-pointer ${
+        active
+          ? 'border-2 border-blue-500 shadow-md ring-2 ring-blue-100'
+          : 'border border-[#d2e3c6] shadow-xs hover:border-blue-300'
+      }`}
+    >
+      {/* Editorial Title */}
+      <div className="flex items-center gap-2.5">
         {kind === 'meal' ? <MealHeaderIllustration /> : <RevenueHeaderIllustration />}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="inline-block text-2xl leading-none font-black text-[#f96332] select-none">
-              &ldquo;
-            </span>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xl leading-none font-black text-[#f96332] select-none">&ldquo;</span>
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
               {kind === 'meal' ? 'Báo cáo suất ăn hàng ngày' : 'Báo cáo doanh thu hàng ngày'}
             </span>
           </div>
-          <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 uppercase leading-snug">
+          <h2 className="text-xs sm:text-sm font-extrabold tracking-tight text-slate-900 uppercase leading-snug truncate">
             {title}
           </h2>
         </div>
       </div>
 
-      {/* Compact Executive Hero Summary Banner (never stretched wide) */}
-      <div className="w-full max-w-[600px] mx-auto grid grid-cols-1 sm:grid-cols-[1.02fr_1.18fr] gap-3 items-stretch">
-        {/* Left Orange Pill — Today Actual + Day vs Plan badge */}
-        <div className="bg-gradient-to-br from-[#fcb94d] to-[#f4a530] rounded-[24px] px-5 py-3.5 flex flex-col items-center justify-center gap-1.5 shadow-sm">
+      {/* Balanced 2-Box Hero */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.18fr] gap-2.5 items-stretch">
+        {/* Left Orange Pill */}
+        <div className="bg-gradient-to-br from-[#fcb94d] to-[#f4a530] rounded-[20px] px-4 py-3 flex flex-col items-center justify-center gap-1 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-white/90">
             Thực tế ngày {dateInfo.dNum}/{dateInfo.mNum}
           </span>
           <div className="flex items-baseline justify-center gap-1.5">
-            <span className="text-4xl sm:text-[46px] leading-none font-black text-white tracking-tight tabular-nums drop-shadow-xs">
+            <span className="text-3xl sm:text-[42px] leading-none font-black text-white tracking-tight tabular-nums drop-shadow-xs">
               {fmtHeroNumber(summary.dayActual, divisor)}
             </span>
-            <span className="text-base sm:text-lg font-extrabold text-white/95 whitespace-nowrap">
+            <span className="text-sm sm:text-base font-extrabold text-white/95 whitespace-nowrap">
               {unitLabel}
             </span>
           </div>
@@ -308,25 +163,23 @@ function StatusPanel({
           </span>
         </div>
 
-        {/* Right Purple-Bordered Box — Compact 2-column alignment + Mini Progress */}
-        <div className="bg-white/80 border-[2.5px] border-[#b197fc] rounded-[24px] px-5 py-3 flex flex-col justify-center gap-2">
-          {/* Row 1: Lũy kế */}
-          <div className="grid grid-cols-[130px_1fr] items-baseline gap-2">
-            <span className="text-xs sm:text-[13px] font-bold text-slate-700">Lũy kế tháng</span>
+        {/* Right Purple-Bordered Box */}
+        <div className="bg-white/85 border-2 border-[#b197fc] rounded-[20px] px-4 py-2.5 flex flex-col justify-center gap-1.5">
+          <div className="grid grid-cols-[118px_1fr] items-baseline gap-2">
+            <span className="text-xs font-bold text-slate-700">Lũy kế tháng</span>
             <div className="text-right tabular-nums whitespace-nowrap">
-              <span className="text-base sm:text-lg font-black text-slate-900">
+              <span className="text-base font-black text-slate-900">
                 {fmtHeroNumber(summary.mtdActual, divisor)}
               </span>{' '}
-              <span className="text-xs font-bold text-slate-600">{unitLabel}</span>
+              <span className="text-[11px] font-bold text-slate-600">{unitLabel}</span>
             </div>
           </div>
 
-          {/* Row 2: Tỉ lệ hoàn thành + Mini progress bar */}
           <div className="space-y-1">
-            <div className="grid grid-cols-[130px_1fr] items-baseline gap-2">
-              <span className="text-xs sm:text-[13px] font-bold text-slate-700">Tỉ lệ hoàn thành</span>
+            <div className="grid grid-cols-[118px_1fr] items-baseline gap-2">
+              <span className="text-xs font-bold text-slate-700">Tỉ lệ hoàn thành</span>
               <span
-                className={`text-right text-base sm:text-lg font-black tabular-nums ${
+                className={`text-right text-base font-black tabular-nums ${
                   summary.completionPct >= 100 ? 'text-emerald-600' : 'text-[#dc2626]'
                 }`}
               >
@@ -343,12 +196,11 @@ function StatusPanel({
             </div>
           </div>
 
-          {/* Row 3: So với năm ngoái */}
-          <div className="grid grid-cols-[130px_1fr] items-center gap-2">
-            <span className="text-xs sm:text-[13px] font-bold text-slate-700">So với năm ngoái</span>
+          <div className="grid grid-cols-[118px_1fr] items-center gap-2">
+            <span className="text-xs font-bold text-slate-700">So với năm ngoái</span>
             <div className="text-right">
               <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs sm:text-sm font-black tabular-nums ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black tabular-nums ${
                   summary.yoyPct >= 100
                     ? 'bg-emerald-100/90 text-emerald-700'
                     : 'bg-rose-100/90 text-[#dc2626]'
@@ -361,52 +213,185 @@ function StatusPanel({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Unit right label */}
-      <div className="text-right text-[11px] font-semibold text-slate-600 -mb-2 pr-1">
-        ({unitLabel})
-      </div>
+function UnifiedStatusTable({
+  panelData,
+  dateInfo,
+  unitLabel,
+  divisor,
+  decimals,
+  compact = false,
+  openSections,
+  onToggleSection,
+}) {
+  const { totalRow, groupRows, blockRows, industryRows } = panelData;
+  const { dNum, mNum, dowLabel, sameDowShortDate } = dateInfo;
+  const shortDate = `${dNum}/${mNum}`;
 
-      {/* 3 Stacked Tables: Nhóm A/B, Điều hành, Ngành nghề */}
-      <div className="space-y-3">
-        <SectionTable
-          sectionTitle="Nhóm A/B"
-          totalRow={totalRow}
-          rows={groupRows}
-          dateInfo={dateInfo}
-          divisor={divisor}
-          decimals={decimals}
-        />
+  const sections = [
+    { key: 'group', title: `NHÓM A / B (${groupRows.length})`, rows: groupRows, alignLeft: false },
+    { key: 'block', title: `KHỐI ĐIỀU HÀNH (${blockRows.length})`, rows: blockRows, alignLeft: false },
+    { key: 'industry', title: `NGÀNH NGHỀ (${industryRows.length})`, rows: industryRows, alignLeft: true },
+  ];
 
-        <SectionTable
-          sectionTitle="Điều hành"
-          totalRow={totalRow}
-          rows={blockRows}
-          dateInfo={dateInfo}
-          divisor={divisor}
-          decimals={decimals}
-        />
+  const renderDataRow = (r, keyPrefix, isTotal = false, alignLeft = false) => (
+    <tr
+      key={`${keyPrefix}-${r.label}`}
+      className={
+        isTotal
+          ? 'bg-[#e6ecf5] font-bold border-y-2 border-slate-300'
+          : 'border-b border-slate-200/75 hover:bg-amber-50/40 transition-colors'
+      }
+    >
+      <td
+        className={`px-2.5 py-1.5 whitespace-nowrap text-slate-900 ${
+          isTotal
+            ? 'text-left font-extrabold uppercase tracking-tight'
+            : alignLeft
+            ? 'text-left pl-5 font-medium text-slate-800'
+            : 'text-left pl-5 font-semibold text-slate-800'
+        }`}
+      >
+        {isTotal ? 'TỔNG TOÀN CÔNG TY' : r.label}
+      </td>
+      {/* Hôm nay */}
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-900 font-semibold whitespace-nowrap">
+        {fmtNumber(r.dayActual, divisor, decimals)}
+      </td>
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600 whitespace-nowrap">
+        {fmtNumber(r.dayPlan, divisor, decimals)}
+      </td>
+      <DiffCell raw={r.dayDiffPlan} divisor={divisor} decimals={decimals} bold={isTotal} />
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600 whitespace-nowrap">
+        {fmtNumber(r.dayLy, divisor, decimals)}
+      </td>
+      <DiffCell raw={r.dayDiffLy} divisor={divisor} decimals={decimals} bold={isTotal} />
+      {/* Cùng thứ năm trước */}
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-800 whitespace-nowrap bg-[#eff6ff]/70 border-l border-sky-200">
+        {fmtNumber(r.dayLySameDow, divisor, decimals)}
+      </td>
+      <DiffCell
+        raw={r.dayDiffLySameDow}
+        divisor={divisor}
+        decimals={decimals}
+        bold={isTotal}
+        extraClass="bg-[#eff6ff]/70"
+      />
+      {/* Lũy kế tháng */}
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-900 font-semibold whitespace-nowrap bg-[#f7f5ff]/70 border-l border-purple-200">
+        {fmtNumber(r.mtdActual, divisor, decimals)}
+      </td>
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600 whitespace-nowrap bg-[#f7f5ff]/70">
+        {fmtNumber(r.mtdPlan, divisor, decimals)}
+      </td>
+      <DiffCell raw={r.mtdDiffPlan} divisor={divisor} decimals={decimals} bold={isTotal} extraClass="bg-[#f7f5ff]/70" />
+      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600 whitespace-nowrap bg-[#f7f5ff]/70">
+        {fmtNumber(r.mtdLy, divisor, decimals)}
+      </td>
+      <DiffCell raw={r.mtdDiffLy} divisor={divisor} decimals={decimals} bold={isTotal} extraClass="bg-[#f7f5ff]/70" />
+    </tr>
+  );
 
-        <SectionTable
-          sectionTitle="Ngành nghề"
-          totalRow={totalRow}
-          rows={industryRows}
-          dateInfo={dateInfo}
-          divisor={divisor}
-          decimals={decimals}
-          alignLeftRows
-        />
-      </div>
+  return (
+    <div className="overflow-x-auto">
+      <table className={`w-full border-collapse leading-snug ${compact ? 'text-[11px]' : 'text-xs sm:text-[12.5px]'}`}>
+        <thead className="sticky top-0 z-10">
+          <tr>
+            <th
+              rowSpan={2}
+              className="px-3 py-2 text-left font-extrabold text-slate-800 bg-[#edf2ec] border border-slate-300/80 min-w-[165px]"
+            >
+              Phân loại <span className="font-normal text-[10.5px] text-slate-500">({unitLabel})</span>
+            </th>
+            <th
+              colSpan={7}
+              className="px-2 py-1.5 text-center font-extrabold text-slate-900 bg-[#f6c465] border border-amber-400/70"
+            >
+              Hôm nay ({dowLabel} — {shortDate})
+            </th>
+            <th
+              colSpan={5}
+              className="px-2 py-1.5 text-center font-extrabold text-slate-900 bg-[#b9a7f8] border border-purple-400/70"
+            >
+              Lũy kế tháng (01/{mNum} ~ {shortDate})
+            </th>
+          </tr>
+          <tr className="text-[10.5px] font-bold text-slate-800">
+            <th className="px-1.5 py-1.5 text-center bg-[#f9d792] border border-amber-300/80 whitespace-nowrap">
+              Năm nay ({shortDate})
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#f9d792] border border-amber-300/80 whitespace-nowrap">
+              Kế hoạch
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#f9d792] border border-amber-300/80 whitespace-nowrap">
+              So với KH
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#f9d792] border border-amber-300/80 whitespace-nowrap">
+              Năm ngoái ({shortDate})
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#f9d792] border border-amber-300/80 whitespace-nowrap">
+              So với NT
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
+              Cùng thứ NT ({sameDowShortDate || shortDate})
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#cfe8ff] border border-sky-300/80 whitespace-nowrap">
+              So cùng thứ
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#d5c8fb] border border-purple-300/80 whitespace-nowrap">
+              Năm nay
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#d5c8fb] border border-purple-300/80 whitespace-nowrap">
+              Kế hoạch
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#d5c8fb] border border-purple-300/80 whitespace-nowrap">
+              So với KH
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#d5c8fb] border border-purple-300/80 whitespace-nowrap">
+              Năm ngoái
+            </th>
+            <th className="px-1.5 py-1.5 text-center bg-[#d5c8fb] border border-purple-300/80 whitespace-nowrap">
+              So với NT
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* Single Company Total Row */}
+          {renderDataRow(totalRow, 'total', true, false)}
 
-      <div className="text-[11px] text-slate-500 pt-1">
-        ※ Chi tiết từng địa điểm xem tại mục Báo cáo Excel &amp; Email hoặc Thực tế D-1.
-      </div>
+          {/* 3 Collapsible Sections */}
+          {sections.map((sec) => {
+            const isOpen = openSections[sec.key];
+            return (
+              <React.Fragment key={sec.key}>
+                <tr
+                  onClick={() => onToggleSection(sec.key)}
+                  className="bg-slate-100/90 hover:bg-slate-200/70 border-y border-slate-200 cursor-pointer select-none"
+                >
+                  <td colSpan={13} className="px-2.5 py-1.5 text-[11px] font-extrabold text-slate-700 tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      {sec.title}
+                    </span>
+                  </td>
+                </tr>
+                {isOpen && sec.rows.map((r) => renderDataRow(r, sec.key, false, sec.alignLeft))}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export default function DashboardPage() {
   const [date, setDate] = useState('');
+  const [viewMode, setViewMode] = useState('meals'); // 'meals' | 'revenue' | 'split'
+  const [openSections, setOpenSections] = useState({ group: true, block: true, industry: true });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -431,6 +416,10 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData(date);
   }, [date, loadData]);
+
+  const toggleSection = (key) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const activeDate = data?.date || date;
   const dateInfo = (() => {
@@ -463,7 +452,7 @@ export default function DashboardPage() {
             Dashboard 2: Thực trạng Suất ăn &amp; Doanh thu
           </h1>
           <p className="text-xs text-slate-500">
-            Báo cáo tổng hợp theo Nhóm A/B, Khối điều hành (FS1–FS5, HCM) và Ngành nghề
+            Tổng quan song song Suất ăn &amp; Doanh thu · Bảng phân cấp 13 cột theo Nhóm A/B, Khối FS và Ngành nghề
           </p>
         </div>
 
@@ -501,27 +490,155 @@ export default function DashboardPage() {
       )}
 
       {data && (
-        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4 items-start">
-          <StatusPanel
-            title={mealTitle}
-            unitLabel="Nghìn suất"
-            panelData={data.meals}
-            dateInfo={dateInfo}
-            divisor={1000}
-            decimals={1}
-            kind="meal"
-          />
+        <>
+          {/* Tầng 1: 2 Khối Hero Tổng quan đặt ngang hàng 50/50 */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <HeroSummaryCard
+              title={mealTitle}
+              unitLabel="Nghìn suất"
+              panelData={data.meals}
+              dateInfo={dateInfo}
+              divisor={1000}
+              decimals={1}
+              kind="meal"
+              active={viewMode === 'meals'}
+              onSelect={() => setViewMode('meals')}
+            />
 
-          <StatusPanel
-            title={revTitle}
-            unitLabel="Triệu đồng"
-            panelData={data.revenue}
-            dateInfo={dateInfo}
-            divisor={1e6}
-            decimals={0}
-            kind="revenue"
-          />
-        </div>
+            <HeroSummaryCard
+              title={revTitle}
+              unitLabel="Triệu đồng"
+              panelData={data.revenue}
+              dateInfo={dateInfo}
+              divisor={1e6}
+              decimals={0}
+              kind="revenue"
+              active={viewMode === 'revenue'}
+              onSelect={() => setViewMode('revenue')}
+            />
+          </div>
+
+          {/* Tầng 2: Thanh công cụ chuyển đổi + Bảng phân cấp toàn chiều rộng */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('meals')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition ${
+                    viewMode === 'meals'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <Utensils className="w-3.5 h-3.5" />
+                  Suất ăn (Nghìn suất)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('revenue')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition ${
+                    viewMode === 'revenue'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  Doanh thu (Triệu đồng)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('split')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                    viewMode === 'split'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <Columns2 className="w-3.5 h-3.5" />
+                  Xem 2 cột song song
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>Bấm thanh nhóm để thu gọn/mở rộng</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allOpen = openSections.group && openSections.block && openSections.industry;
+                    setOpenSections({ group: !allOpen, block: !allOpen, industry: !allOpen });
+                  }}
+                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+                >
+                  {openSections.group && openSections.block && openSections.industry ? 'Thu gọn tất cả' : 'Mở tất cả'}
+                </button>
+              </div>
+            </div>
+
+            {viewMode === 'meals' && (
+              <UnifiedStatusTable
+                panelData={data.meals}
+                dateInfo={dateInfo}
+                unitLabel="Nghìn suất"
+                divisor={1000}
+                decimals={1}
+                openSections={openSections}
+                onToggleSection={toggleSection}
+              />
+            )}
+
+            {viewMode === 'revenue' && (
+              <UnifiedStatusTable
+                panelData={data.revenue}
+                dateInfo={dateInfo}
+                unitLabel="Triệu đồng"
+                divisor={1e6}
+                decimals={0}
+                openSections={openSections}
+                onToggleSection={toggleSection}
+              />
+            )}
+
+            {viewMode === 'split' && (
+              <div className="grid grid-cols-1 2xl:grid-cols-2 divide-y 2xl:divide-y-0 2xl:divide-x divide-slate-200">
+                <div>
+                  <div className="px-3 py-2 bg-[#eef5e9] border-b border-slate-200 text-xs font-extrabold text-slate-800 uppercase">
+                    Suất ăn (Nghìn suất)
+                  </div>
+                  <UnifiedStatusTable
+                    panelData={data.meals}
+                    dateInfo={dateInfo}
+                    unitLabel="Nghìn suất"
+                    divisor={1000}
+                    decimals={1}
+                    compact
+                    openSections={openSections}
+                    onToggleSection={toggleSection}
+                  />
+                </div>
+                <div>
+                  <div className="px-3 py-2 bg-[#eef5e9] border-b border-slate-200 text-xs font-extrabold text-slate-800 uppercase">
+                    Doanh thu (Triệu đồng)
+                  </div>
+                  <UnifiedStatusTable
+                    panelData={data.revenue}
+                    dateInfo={dateInfo}
+                    unitLabel="Triệu đồng"
+                    divisor={1e6}
+                    decimals={0}
+                    compact
+                    openSections={openSections}
+                    onToggleSection={toggleSection}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500">
+              ※ Chi tiết từng địa điểm xem tại mục Báo cáo Excel &amp; Email hoặc Thực tế D-1. Bấm trực tiếp vào thẻ Tổng quan Suất ăn / Doanh thu phía trên để chuyển bảng nhanh.
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

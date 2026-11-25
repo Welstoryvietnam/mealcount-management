@@ -370,11 +370,11 @@ const SCOPE_DEFS = [
   { key: 'all', label: 'Cả công ty' },
   { key: 'A', label: 'Nhóm A' },
   { key: 'B', label: 'Nhóm B' },
-  { key: 'FS1', label: 'ĐH 1' },
-  { key: 'FS2', label: 'ĐH 2' },
-  { key: 'FS3', label: 'ĐH 3' },
-  { key: 'FS4', label: 'ĐH 4' },
-  { key: 'FS5', label: 'ĐH 5' },
+  { key: 'FS1', label: 'FS 1' },
+  { key: 'FS2', label: 'FS 2' },
+  { key: 'FS3', label: 'FS 3' },
+  { key: 'FS4', label: 'FS 4' },
+  { key: 'FS5', label: 'FS 5' },
   { key: 'Chi nhánh HCM', label: 'HCM' },
 ];
 
